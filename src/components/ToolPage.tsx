@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { motion } from "framer-motion";
 import { Toaster, toast } from "sonner";
@@ -9,7 +9,6 @@ import { AnimatedBackground } from "@/components/AnimatedBackground";
 import { Logo } from "@/components/Logo";
 import { explainConcept, generateContent } from "@/lib/ai.functions";
 import { createProject } from "@/lib/projects";
-import { useRef } from "react";
 
 type Mode = "doubt" | "notes" | "presentation" | "pdf";
 
