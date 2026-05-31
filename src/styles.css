@@ -40,35 +40,44 @@
 
 :root {
   --radius: 1rem;
-  --background: oklch(0.99 0.005 250);
+  --background: oklch(0.985 0.012 230);
   --foreground: oklch(0.16 0.02 260);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.16 0.02 260);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.16 0.02 260);
-  --primary: oklch(0.55 0.22 255);
+  --primary: oklch(0.62 0.19 250);
   --primary-foreground: oklch(0.99 0 0);
-  --secondary: oklch(0.96 0.015 255);
+  --secondary: oklch(0.97 0.02 240);
   --secondary-foreground: oklch(0.18 0.02 260);
-  --muted: oklch(0.96 0.01 255);
+  --muted: oklch(0.96 0.015 245);
   --muted-foreground: oklch(0.45 0.03 260);
-  --accent: oklch(0.62 0.2 250);
+  --accent: oklch(0.72 0.16 200);
   --accent-foreground: oklch(0.99 0 0);
   --destructive: oklch(0.62 0.24 25);
   --destructive-foreground: oklch(0.99 0 0);
-  --border: oklch(0.92 0.01 255);
-  --input: oklch(0.94 0.01 255);
-  --ring: oklch(0.55 0.22 255);
-  --violet: oklch(0.55 0.22 255);
-  --indigo: oklch(0.5 0.2 260);
-  --cyan: oklch(0.7 0.16 220);
-  --fuchsia: oklch(0.62 0.22 305);
-  --gradient-aurora: linear-gradient(135deg, oklch(0.62 0.22 255) 0%, oklch(0.58 0.2 245) 50%, oklch(0.72 0.16 220) 100%);
-  --gradient-violet: linear-gradient(135deg, oklch(0.58 0.22 250) 0%, oklch(0.62 0.22 270) 100%);
-  --gradient-text: linear-gradient(135deg, oklch(0.45 0.24 255) 0%, oklch(0.55 0.22 250) 50%, oklch(0.6 0.18 230) 100%);
-  --gradient-soft: linear-gradient(180deg, oklch(0.99 0.01 250) 0%, oklch(0.96 0.03 250) 100%);
-  --shadow-glow: 0 10px 40px -10px oklch(0.55 0.22 255 / 0.35);
-  --shadow-glow-strong: 0 20px 60px -10px oklch(0.55 0.22 255 / 0.45);
+  --border: oklch(0.93 0.012 240);
+  --input: oklch(0.95 0.012 240);
+  --ring: oklch(0.62 0.19 250);
+  --violet: oklch(0.72 0.14 290);
+  --indigo: oklch(0.7 0.14 255);
+  --cyan: oklch(0.78 0.12 210);
+  --fuchsia: oklch(0.75 0.14 320);
+  --mint: oklch(0.82 0.12 165);
+  --peach: oklch(0.84 0.1 60);
+  /* Soft pastel light gradients */
+  --gradient-aurora: linear-gradient(135deg, oklch(0.78 0.14 250) 0%, oklch(0.82 0.12 295) 50%, oklch(0.84 0.1 200) 100%);
+  --gradient-sky: linear-gradient(135deg, oklch(0.92 0.06 230) 0%, oklch(0.9 0.07 200) 100%);
+  --gradient-lavender: linear-gradient(135deg, oklch(0.92 0.06 290) 0%, oklch(0.9 0.07 270) 100%);
+  --gradient-mint: linear-gradient(135deg, oklch(0.93 0.06 170) 0%, oklch(0.9 0.08 160) 100%);
+  --gradient-peach: linear-gradient(135deg, oklch(0.94 0.05 60) 0%, oklch(0.92 0.07 45) 100%);
+  --gradient-rose: linear-gradient(135deg, oklch(0.94 0.05 20) 0%, oklch(0.92 0.07 350) 100%);
+  --gradient-violet: linear-gradient(135deg, oklch(0.78 0.13 270) 0%, oklch(0.8 0.12 295) 100%);
+  --gradient-text: linear-gradient(135deg, oklch(0.55 0.22 255) 0%, oklch(0.58 0.2 280) 50%, oklch(0.62 0.18 210) 100%);
+  --gradient-soft: linear-gradient(180deg, oklch(0.99 0.012 240) 0%, oklch(0.95 0.04 250) 100%);
+  --gradient-page: linear-gradient(180deg, oklch(0.98 0.02 230) 0%, oklch(0.96 0.04 270) 60%, oklch(0.97 0.03 200) 100%);
+  --shadow-glow: 0 10px 40px -10px oklch(0.7 0.18 260 / 0.32);
+  --shadow-glow-strong: 0 20px 60px -10px oklch(0.72 0.18 270 / 0.4);
   --shadow-card: 0 10px 30px -10px oklch(0.3 0.05 260 / 0.12), 0 2px 6px -2px oklch(0.3 0.05 260 / 0.06);
   --shadow-soft: 0 1px 2px oklch(0.3 0.05 260 / 0.06), 0 4px 12px -4px oklch(0.3 0.05 260 / 0.08);
 }
@@ -84,9 +93,10 @@
   }
   body {
     background-image:
-      radial-gradient(ellipse 80% 50% at 20% 0%, oklch(0.7 0.16 250 / 0.10), transparent 60%),
-      radial-gradient(ellipse 60% 40% at 90% 10%, oklch(0.75 0.14 220 / 0.08), transparent 60%),
-      radial-gradient(ellipse 70% 60% at 50% 100%, oklch(0.78 0.12 260 / 0.06), transparent 60%);
+      radial-gradient(ellipse 70% 50% at 15% 0%, oklch(0.85 0.1 250 / 0.35), transparent 60%),
+      radial-gradient(ellipse 55% 40% at 95% 5%, oklch(0.88 0.09 200 / 0.32), transparent 60%),
+      radial-gradient(ellipse 60% 50% at 85% 100%, oklch(0.87 0.09 290 / 0.28), transparent 60%),
+      radial-gradient(ellipse 65% 55% at 20% 100%, oklch(0.9 0.08 170 / 0.22), transparent 60%);
     background-attachment: fixed;
     min-height: 100vh;
   }
@@ -106,8 +116,14 @@
     color: transparent;
   }
   .gradient-aurora { background-image: var(--gradient-aurora); }
+  .gradient-sky { background-image: var(--gradient-sky); }
+  .gradient-lavender { background-image: var(--gradient-lavender); }
+  .gradient-mint { background-image: var(--gradient-mint); }
+  .gradient-peach { background-image: var(--gradient-peach); }
+  .gradient-rose { background-image: var(--gradient-rose); }
   .gradient-violet { background-image: var(--gradient-violet); }
   .gradient-soft { background-image: var(--gradient-soft); }
+  .gradient-page { background-image: var(--gradient-page); }
   .glass {
     background-color: oklch(1 0 0 / 0.75);
     backdrop-filter: blur(18px) saturate(140%);
