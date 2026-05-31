@@ -27,6 +27,16 @@ async function fetchImage(url: string, timeoutMs = 15000): Promise<string | null
   }
 }
 
+// Soft pastel color palette for content boxes [bgR,bgG,bgB, borderR,borderG,borderB, textR,textG,textB]
+const BOX_PALETTE: Array<{ bg: [number, number, number]; border: [number, number, number]; accent: [number, number, number] }> = [
+  { bg: [235, 244, 255], border: [180, 206, 245], accent: [60, 110, 220] },   // sky
+  { bg: [240, 235, 255], border: [200, 188, 240], accent: [110, 80, 210] },   // lavender
+  { bg: [233, 248, 240], border: [176, 220, 196], accent: [40, 145, 110] },   // mint
+  { bg: [255, 243, 232], border: [245, 210, 175], accent: [200, 120, 40] },   // peach
+  { bg: [255, 235, 240], border: [245, 195, 210], accent: [210, 70, 120] },   // rose
+  { bg: [240, 240, 245], border: [205, 205, 215], accent: [80, 90, 120] },    // slate
+];
+
 export async function exportDocToPDF(doc: GeneratedDoc) {
   const pdf = new jsPDF({ unit: "pt", format: "a4" });
   const pageW = pdf.internal.pageSize.getWidth();
@@ -34,7 +44,7 @@ export async function exportDocToPDF(doc: GeneratedDoc) {
   const margin = 48;
   const contentW = pageW - margin * 2;
 
-  // Pre-fetch all images in parallel
+  // Pre-fetch all images in parallel (one cover + one per page + one per section illustration where useful)
   const coverQ = doc.coverImageQuery || doc.title;
   const imagePromises = [
     fetchImage(imageUrl(coverQ, 1024, 768)),
@@ -63,47 +73,128 @@ export async function exportDocToPDF(doc: GeneratedDoc) {
     pdf.text(`Page ${n}`, pageW / 2, pageH - 18, { align: "center" });
   };
 
+  const newPage = (subject: string) => {
+    pdf.addPage();
+    pdf.setFillColor(255, 255, 255);
+    pdf.rect(0, 0, pageW, pageH, "F");
+    drawHeader(subject);
+    return 50;
+  };
+
+  // Draw a colored, bordered, rounded "callout" box and return new Y.
+  // Renders: optional heading bar, optional paragraph, optional bullets — all inside one box.
+  const drawCalloutBox = (opts: {
+    y: number;
+    palette: (typeof BOX_PALETTE)[number];
+    heading?: string;
+    paragraph?: string;
+    bullets?: string[];
+    subject: string;
+  }): number => {
+    let { y } = opts;
+    const { palette, heading, paragraph, bullets, subject } = opts;
+    const padX = 14;
+    const padTop = 14;
+    const padBottom = 14;
+    const innerW = contentW - padX * 2;
+
+    // Measure
+    const headingLines = heading ? pdf.splitTextToSize(heading, innerW) : [];
+    const paraLines = paragraph ? pdf.splitTextToSize(paragraph, innerW) : [];
+    const bulletLines: string[][] = (bullets || []).map((b) =>
+      pdf.splitTextToSize("•  " + b, innerW - 6),
+    );
+
+    const headingH = headingLines.length * 16;
+    const paraH = paraLines.length * 15 + (paragraph ? 4 : 0);
+    const bulletsH = bulletLines.reduce((a, l) => a + l.length * 14 + 4, 0);
+    const gap = heading && (paragraph || bullets?.length) ? 8 : 0;
+    const boxH = padTop + headingH + gap + paraH + bulletsH + padBottom;
+
+    // Page break if needed
+    if (y + boxH > pageH - 60) {
+      drawFooter(pdf.getNumberOfPages());
+      y = newPage(subject);
+    }
+
+    // Box background
+    pdf.setFillColor(...palette.bg);
+    pdf.setDrawColor(...palette.border);
+    pdf.setLineWidth(1);
+    pdf.roundedRect(margin, y, contentW, boxH, 10, 10, "FD");
+
+    // Accent bar on the left
+    pdf.setFillColor(...palette.accent);
+    pdf.roundedRect(margin, y, 4, boxH, 2, 2, "F");
+
+    let cy = y + padTop;
+    if (heading) {
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(12);
+      pdf.setTextColor(...palette.accent);
+      pdf.text(headingLines, margin + padX, cy + 10);
+      cy += headingH + gap;
+    }
+    if (paragraph) {
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(11);
+      pdf.setTextColor(35, 40, 60);
+      pdf.text(paraLines, margin + padX, cy + 4);
+      cy += paraH;
+    }
+    if (bulletLines.length) {
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(11);
+      pdf.setTextColor(35, 40, 60);
+      for (const lines of bulletLines) {
+        pdf.text(lines, margin + padX + 4, cy + 4);
+        cy += lines.length * 14 + 4;
+      }
+    }
+    return y + boxH + 12;
+  };
+
   // ===== Cover =====
   pdf.setFillColor(255, 255, 255);
   pdf.rect(0, 0, pageW, pageH, "F");
-  // top gradient band
-  for (let i = 0; i < 220; i++) {
-    const ratio = i / 220;
-    const r = Math.round(80 + (40 - 80) * ratio);
-    const g = Math.round(120 + (90 - 120) * ratio);
-    const b = Math.round(240 + (220 - 240) * ratio);
+  // soft pastel gradient band (sky → lavender)
+  for (let i = 0; i < 260; i++) {
+    const ratio = i / 260;
+    const r = Math.round(210 + (225 - 210) * ratio);
+    const g = Math.round(225 + (215 - 225) * ratio);
+    const b = Math.round(250 + (250 - 250) * ratio);
     pdf.setFillColor(r, g, b);
     pdf.rect(0, i, pageW, 1, "F");
   }
   if (coverImg) {
     try {
-      pdf.addImage(coverImg, "JPEG", margin, 60, contentW, 200, undefined, "FAST");
+      // White rounded image card
+      pdf.setFillColor(255, 255, 255);
+      pdf.setDrawColor(220, 228, 245);
+      pdf.roundedRect(margin - 6, 54, contentW + 12, 220, 14, 14, "FD");
+      pdf.addImage(coverImg, "JPEG", margin, 60, contentW, 208, undefined, "FAST");
     } catch {}
   }
   pdf.setTextColor(20, 25, 50);
   pdf.setFont("helvetica", "bold");
-  pdf.setFontSize(32);
+  pdf.setFontSize(34);
   const titleLines = pdf.splitTextToSize(doc.title, contentW);
-  pdf.text(titleLines, margin, 300);
+  pdf.text(titleLines, margin, 320);
   pdf.setFont("helvetica", "normal");
   pdf.setFontSize(14);
   pdf.setTextColor(80, 95, 140);
-  pdf.text(doc.subject || "Study Material", margin, 300 + titleLines.length * 32 + 8);
+  pdf.text(doc.subject || "Study Material", margin, 320 + titleLines.length * 34 + 8);
   pdf.setFontSize(11);
   pdf.setTextColor(95, 105, 130);
   const summary = pdf.splitTextToSize(doc.summary || "", contentW);
-  pdf.text(summary, margin, 300 + titleLines.length * 32 + 36);
+  pdf.text(summary, margin, 320 + titleLines.length * 34 + 36);
   pdf.setFontSize(9);
   pdf.setTextColor(140, 150, 170);
   pdf.text("Generated with Nexora AI · nexora.ai", margin, pageH - 30);
 
   // ===== Pages =====
   doc.pages.forEach((page, pIdx) => {
-    pdf.addPage();
-    pdf.setFillColor(255, 255, 255);
-    pdf.rect(0, 0, pageW, pageH, "F");
-    drawHeader(doc.subject || "");
-    let y = 50;
+    let y = newPage(doc.subject || "");
 
     // Page number chip
     pdf.setFillColor(235, 240, 255);
@@ -135,112 +226,62 @@ export async function exportDocToPDF(doc: GeneratedDoc) {
     pdf.line(margin, y + 4, margin + 50, y + 4);
     y += 18;
 
-    // Illustration
+    // Illustration in a soft rounded card
     const img = pageImgs[pIdx];
     if (img) {
       try {
-        const imgH = 170;
-        pdf.addImage(img, "JPEG", margin, y, contentW, imgH, undefined, "FAST");
-        y += imgH + 16;
+        const imgH = 180;
+        pdf.setFillColor(248, 250, 255);
+        pdf.setDrawColor(220, 228, 245);
+        pdf.roundedRect(margin, y, contentW, imgH + 12, 12, 12, "FD");
+        pdf.addImage(img, "JPEG", margin + 6, y + 6, contentW - 12, imgH, undefined, "FAST");
+        y += imgH + 24;
       } catch {}
     }
 
-    // Sections
-    for (const sec of page.sections) {
-      if (y > pageH - 100) {
-        pdf.addPage();
-        pdf.setFillColor(255, 255, 255);
-        pdf.rect(0, 0, pageW, pageH, "F");
-        drawHeader(doc.subject || "");
-        y = 50;
-      }
-      pdf.setFont("helvetica", "bold");
-      pdf.setFontSize(13);
-      pdf.setTextColor(50, 70, 180);
-      const h = pdf.splitTextToSize(sec.heading, contentW);
-      pdf.text(h, margin, y);
-      y += h.length * 16 + 4;
-      if (sec.paragraph) {
-        pdf.setFont("helvetica", "normal");
-        pdf.setFontSize(11);
-        pdf.setTextColor(40, 45, 70);
-        const p = pdf.splitTextToSize(sec.paragraph, contentW);
-        if (y + p.length * 15 > pageH - 60) {
-          pdf.addPage();
-          pdf.setFillColor(255, 255, 255);
-          pdf.rect(0, 0, pageW, pageH, "F");
-          drawHeader(doc.subject || "");
-          y = 50;
-        }
-        pdf.text(p, margin, y);
-        y += p.length * 15 + 6;
-      }
-      if (sec.bullets?.length) {
-        pdf.setFontSize(11);
-        pdf.setTextColor(40, 45, 70);
-        for (const b of sec.bullets) {
-          const wrapped = pdf.splitTextToSize("•  " + b, contentW - 10);
-          if (y + wrapped.length * 14 > pageH - 60) {
-            pdf.addPage();
-            pdf.setFillColor(255, 255, 255);
-            pdf.rect(0, 0, pageW, pageH, "F");
-            drawHeader(doc.subject || "");
-            y = 50;
-          }
-          pdf.text(wrapped, margin + 6, y);
-          y += wrapped.length * 14 + 2;
-        }
-        y += 6;
-      }
-    }
+    // Sections — each one rendered as a colored bordered callout box
+    page.sections.forEach((sec, sIdx) => {
+      const palette = BOX_PALETTE[(pIdx + sIdx) % BOX_PALETTE.length];
+      y = drawCalloutBox({
+        y,
+        palette,
+        heading: sec.heading,
+        paragraph: sec.paragraph,
+        bullets: sec.bullets,
+        subject: doc.subject || "",
+      });
+    });
     drawFooter(pIdx + 2);
   });
 
   // ===== Concepts & questions =====
-  pdf.addPage();
-  pdf.setFillColor(255, 255, 255);
-  pdf.rect(0, 0, pageW, pageH, "F");
-  drawHeader(doc.subject || "");
-  let y = 60;
+  let y = newPage(doc.subject || "");
+  y += 10;
   pdf.setFont("helvetica", "bold");
   pdf.setFontSize(22);
   pdf.setTextColor(20, 25, 50);
   pdf.text("Key Concepts & Questions", margin, y);
-  y += 30;
-  pdf.setFont("helvetica", "bold");
-  pdf.setFontSize(13);
-  pdf.setTextColor(50, 70, 180);
-  pdf.text("Key Concepts", margin, y);
-  y += 18;
-  pdf.setFont("helvetica", "normal");
-  pdf.setFontSize(11);
-  pdf.setTextColor(40, 45, 70);
-  for (const c of doc.keyConcepts || []) {
-    const w = pdf.splitTextToSize("•  " + c, contentW - 10);
-    pdf.text(w, margin + 6, y);
-    y += w.length * 14 + 2;
+  y += 24;
+
+  if (doc.keyConcepts?.length) {
+    y = drawCalloutBox({
+      y,
+      palette: BOX_PALETTE[2], // mint
+      heading: "Key Concepts",
+      bullets: doc.keyConcepts,
+      subject: doc.subject || "",
+    });
   }
-  y += 12;
-  pdf.setFont("helvetica", "bold");
-  pdf.setFontSize(13);
-  pdf.setTextColor(50, 70, 180);
-  pdf.text("Important Questions", margin, y);
-  y += 18;
-  pdf.setFont("helvetica", "normal");
-  pdf.setFontSize(11);
-  pdf.setTextColor(40, 45, 70);
-  (doc.keyQuestions || []).forEach((q, i) => {
-    const w = pdf.splitTextToSize(`${i + 1}.  ${q}`, contentW - 10);
-    if (y + w.length * 14 > pageH - 60) {
-      pdf.addPage();
-      pdf.setFillColor(255, 255, 255);
-      pdf.rect(0, 0, pageW, pageH, "F");
-      drawHeader(doc.subject || "");
-      y = 60;
-    }
-    pdf.text(w, margin + 6, y);
-    y += w.length * 14 + 4;
-  });
+  if (doc.keyQuestions?.length) {
+    y = drawCalloutBox({
+      y,
+      palette: BOX_PALETTE[3], // peach
+      heading: "Important Questions",
+      bullets: doc.keyQuestions.map((q, i) => `${i + 1}. ${q}`),
+      subject: doc.subject || "",
+    });
+  }
+  drawFooter(pdf.getNumberOfPages());
 
   const safe = doc.title.replace(/[^a-z0-9]+/gi, "_").slice(0, 40) || "nexora";
   pdf.save(`${safe}.pdf`);
