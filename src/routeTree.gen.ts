@@ -9,10 +9,34 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as PresentationRouteImport } from './routes/presentation'
+import { Route as PdfRouteImport } from './routes/pdf'
+import { Route as NotesRouteImport } from './routes/notes'
+import { Route as DoubtRouteImport } from './routes/doubt'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as WorkspaceIdRouteImport } from './routes/workspace.$id'
 
+const PresentationRoute = PresentationRouteImport.update({
+  id: '/presentation',
+  path: '/presentation',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PdfRoute = PdfRouteImport.update({
+  id: '/pdf',
+  path: '/pdf',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const NotesRoute = NotesRouteImport.update({
+  id: '/notes',
+  path: '/notes',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DoubtRoute = DoubtRouteImport.update({
+  id: '/doubt',
+  path: '/doubt',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DashboardRoute = DashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
@@ -32,35 +56,101 @@ const WorkspaceIdRoute = WorkspaceIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRoute
+  '/doubt': typeof DoubtRoute
+  '/notes': typeof NotesRoute
+  '/pdf': typeof PdfRoute
+  '/presentation': typeof PresentationRoute
   '/workspace/$id': typeof WorkspaceIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRoute
+  '/doubt': typeof DoubtRoute
+  '/notes': typeof NotesRoute
+  '/pdf': typeof PdfRoute
+  '/presentation': typeof PresentationRoute
   '/workspace/$id': typeof WorkspaceIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRoute
+  '/doubt': typeof DoubtRoute
+  '/notes': typeof NotesRoute
+  '/pdf': typeof PdfRoute
+  '/presentation': typeof PresentationRoute
   '/workspace/$id': typeof WorkspaceIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/dashboard' | '/workspace/$id'
+  fullPaths:
+    | '/'
+    | '/dashboard'
+    | '/doubt'
+    | '/notes'
+    | '/pdf'
+    | '/presentation'
+    | '/workspace/$id'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/dashboard' | '/workspace/$id'
-  id: '__root__' | '/' | '/dashboard' | '/workspace/$id'
+  to:
+    | '/'
+    | '/dashboard'
+    | '/doubt'
+    | '/notes'
+    | '/pdf'
+    | '/presentation'
+    | '/workspace/$id'
+  id:
+    | '__root__'
+    | '/'
+    | '/dashboard'
+    | '/doubt'
+    | '/notes'
+    | '/pdf'
+    | '/presentation'
+    | '/workspace/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   DashboardRoute: typeof DashboardRoute
+  DoubtRoute: typeof DoubtRoute
+  NotesRoute: typeof NotesRoute
+  PdfRoute: typeof PdfRoute
+  PresentationRoute: typeof PresentationRoute
   WorkspaceIdRoute: typeof WorkspaceIdRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/presentation': {
+      id: '/presentation'
+      path: '/presentation'
+      fullPath: '/presentation'
+      preLoaderRoute: typeof PresentationRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/pdf': {
+      id: '/pdf'
+      path: '/pdf'
+      fullPath: '/pdf'
+      preLoaderRoute: typeof PdfRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/notes': {
+      id: '/notes'
+      path: '/notes'
+      fullPath: '/notes'
+      preLoaderRoute: typeof NotesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/doubt': {
+      id: '/doubt'
+      path: '/doubt'
+      fullPath: '/doubt'
+      preLoaderRoute: typeof DoubtRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/dashboard': {
       id: '/dashboard'
       path: '/dashboard'
@@ -88,6 +178,10 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   DashboardRoute: DashboardRoute,
+  DoubtRoute: DoubtRoute,
+  NotesRoute: NotesRoute,
+  PdfRoute: PdfRoute,
+  PresentationRoute: PresentationRoute,
   WorkspaceIdRoute: WorkspaceIdRoute,
 }
 export const routeTree = rootRouteImport
