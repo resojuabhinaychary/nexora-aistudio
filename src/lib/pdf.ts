@@ -49,8 +49,15 @@ export async function exportDocToPDF(doc: GeneratedDoc) {
   const imagePromises = [
     fetchImage(imageUrl(coverQ, 1024, 768)),
     ...doc.pages.map((p) => fetchImage(imageUrl(p.imageQuery || p.title, 1024, 480))),
+    // Secondary "filler" illustrations to fill empty space at the bottom of pages
+    ...doc.pages.map((p) =>
+      fetchImage(imageUrl((p.imageQuery || p.title) + " concept illustration colorful", 800, 600)),
+    ),
   ];
-  const [coverImg, ...pageImgs] = await Promise.all(imagePromises);
+  const all = await Promise.all(imagePromises);
+  const coverImg = all[0];
+  const pageImgs = all.slice(1, 1 + doc.pages.length);
+  const fillerImgs = all.slice(1 + doc.pages.length);
 
   const drawHeader = (subject: string) => {
     pdf.setFillColor(245, 248, 255);
@@ -251,6 +258,26 @@ export async function exportDocToPDF(doc: GeneratedDoc) {
         subject: doc.subject || "",
       });
     });
+
+    // Fill remaining empty space at the bottom of the page with a relevant illustration
+    const remaining = pageH - 60 - y;
+    const filler = fillerImgs[pIdx];
+    if (filler && remaining > 160) {
+      try {
+        const imgH = Math.min(remaining - 24, 240);
+        const imgW = Math.min(contentW, imgH * 1.4);
+        const xOffset = margin + (contentW - imgW) / 2;
+        pdf.setFillColor(250, 251, 255);
+        pdf.setDrawColor(225, 232, 248);
+        pdf.roundedRect(xOffset - 6, y, imgW + 12, imgH + 28, 12, 12, "FD");
+        pdf.addImage(filler, "JPEG", xOffset, y + 6, imgW, imgH, undefined, "FAST");
+        pdf.setFont("helvetica", "italic");
+        pdf.setFontSize(9);
+        pdf.setTextColor(120, 130, 160);
+        const caption = page.imageQuery || page.title;
+        pdf.text(`Fig. ${pIdx + 1} — ${caption}`, xOffset + imgW / 2, y + imgH + 20, { align: "center" });
+      } catch {}
+    }
     drawFooter(pIdx + 2);
   });
 
