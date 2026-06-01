@@ -10,21 +10,18 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as PresentationRouteImport } from './routes/presentation'
-import { Route as PdfRouteImport } from './routes/pdf'
 import { Route as NotesRouteImport } from './routes/notes'
-import { Route as DoubtRouteImport } from './routes/doubt'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as DashboardRouteImport } from './routes/dashboard'
+import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as WorkspaceIdRouteImport } from './routes/workspace.$id'
+import { Route as AuthenticatedPdfRouteImport } from './routes/_authenticated/pdf'
+import { Route as AuthenticatedDoubtRouteImport } from './routes/_authenticated/doubt'
 
 const PresentationRoute = PresentationRouteImport.update({
   id: '/presentation',
   path: '/presentation',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PdfRoute = PdfRouteImport.update({
-  id: '/pdf',
-  path: '/pdf',
   getParentRoute: () => rootRouteImport,
 } as any)
 const NotesRoute = NotesRouteImport.update({
@@ -32,14 +29,18 @@ const NotesRoute = NotesRouteImport.update({
   path: '/notes',
   getParentRoute: () => rootRouteImport,
 } as any)
-const DoubtRoute = DoubtRouteImport.update({
-  id: '/doubt',
-  path: '/doubt',
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DashboardRoute = DashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedRoute = AuthenticatedRouteImport.update({
+  id: '/_authenticated',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -52,33 +53,47 @@ const WorkspaceIdRoute = WorkspaceIdRouteImport.update({
   path: '/workspace/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedPdfRoute = AuthenticatedPdfRouteImport.update({
+  id: '/pdf',
+  path: '/pdf',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedDoubtRoute = AuthenticatedDoubtRouteImport.update({
+  id: '/doubt',
+  path: '/doubt',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRoute
-  '/doubt': typeof DoubtRoute
+  '/login': typeof LoginRoute
   '/notes': typeof NotesRoute
-  '/pdf': typeof PdfRoute
   '/presentation': typeof PresentationRoute
+  '/doubt': typeof AuthenticatedDoubtRoute
+  '/pdf': typeof AuthenticatedPdfRoute
   '/workspace/$id': typeof WorkspaceIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRoute
-  '/doubt': typeof DoubtRoute
+  '/login': typeof LoginRoute
   '/notes': typeof NotesRoute
-  '/pdf': typeof PdfRoute
   '/presentation': typeof PresentationRoute
+  '/doubt': typeof AuthenticatedDoubtRoute
+  '/pdf': typeof AuthenticatedPdfRoute
   '/workspace/$id': typeof WorkspaceIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/_authenticated': typeof AuthenticatedRouteWithChildren
   '/dashboard': typeof DashboardRoute
-  '/doubt': typeof DoubtRoute
+  '/login': typeof LoginRoute
   '/notes': typeof NotesRoute
-  '/pdf': typeof PdfRoute
   '/presentation': typeof PresentationRoute
+  '/_authenticated/doubt': typeof AuthenticatedDoubtRoute
+  '/_authenticated/pdf': typeof AuthenticatedPdfRoute
   '/workspace/$id': typeof WorkspaceIdRoute
 }
 export interface FileRouteTypes {
@@ -86,37 +101,41 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/dashboard'
-    | '/doubt'
+    | '/login'
     | '/notes'
-    | '/pdf'
     | '/presentation'
+    | '/doubt'
+    | '/pdf'
     | '/workspace/$id'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/dashboard'
-    | '/doubt'
+    | '/login'
     | '/notes'
-    | '/pdf'
     | '/presentation'
+    | '/doubt'
+    | '/pdf'
     | '/workspace/$id'
   id:
     | '__root__'
     | '/'
+    | '/_authenticated'
     | '/dashboard'
-    | '/doubt'
+    | '/login'
     | '/notes'
-    | '/pdf'
     | '/presentation'
+    | '/_authenticated/doubt'
+    | '/_authenticated/pdf'
     | '/workspace/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AuthenticatedRoute: typeof AuthenticatedRouteWithChildren
   DashboardRoute: typeof DashboardRoute
-  DoubtRoute: typeof DoubtRoute
+  LoginRoute: typeof LoginRoute
   NotesRoute: typeof NotesRoute
-  PdfRoute: typeof PdfRoute
   PresentationRoute: typeof PresentationRoute
   WorkspaceIdRoute: typeof WorkspaceIdRoute
 }
@@ -130,13 +149,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PresentationRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/pdf': {
-      id: '/pdf'
-      path: '/pdf'
-      fullPath: '/pdf'
-      preLoaderRoute: typeof PdfRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/notes': {
       id: '/notes'
       path: '/notes'
@@ -144,11 +156,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof NotesRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/doubt': {
-      id: '/doubt'
-      path: '/doubt'
-      fullPath: '/doubt'
-      preLoaderRoute: typeof DoubtRouteImport
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/dashboard': {
@@ -156,6 +168,13 @@ declare module '@tanstack/react-router' {
       path: '/dashboard'
       fullPath: '/dashboard'
       preLoaderRoute: typeof DashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated': {
+      id: '/_authenticated'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AuthenticatedRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -172,18 +191,56 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WorkspaceIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/pdf': {
+      id: '/_authenticated/pdf'
+      path: '/pdf'
+      fullPath: '/pdf'
+      preLoaderRoute: typeof AuthenticatedPdfRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/doubt': {
+      id: '/_authenticated/doubt'
+      path: '/doubt'
+      fullPath: '/doubt'
+      preLoaderRoute: typeof AuthenticatedDoubtRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
   }
 }
 
+interface AuthenticatedRouteChildren {
+  AuthenticatedDoubtRoute: typeof AuthenticatedDoubtRoute
+  AuthenticatedPdfRoute: typeof AuthenticatedPdfRoute
+}
+
+const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
+  AuthenticatedDoubtRoute: AuthenticatedDoubtRoute,
+  AuthenticatedPdfRoute: AuthenticatedPdfRoute,
+}
+
+const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
+  AuthenticatedRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AuthenticatedRoute: AuthenticatedRouteWithChildren,
   DashboardRoute: DashboardRoute,
-  DoubtRoute: DoubtRoute,
+  LoginRoute: LoginRoute,
   NotesRoute: NotesRoute,
-  PdfRoute: PdfRoute,
   PresentationRoute: PresentationRoute,
   WorkspaceIdRoute: WorkspaceIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
