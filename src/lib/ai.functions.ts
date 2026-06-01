@@ -30,16 +30,23 @@ export type GeneratedDoc = {
   coverImageQuery?: string;
 };
 
-const systemPrompt = `You are Nexora AI, an expert educational content generator for students. Produce comprehensive, beautifully-structured, easy-to-read study material in clear simple language with concrete examples. Output ONLY valid JSON matching the requested schema. No prose, no markdown.`;
+const systemPrompt = `You are Nexora AI, a master educator and exam coach. Produce DEEP, COMPREHENSIVE, textbook-quality study material that goes far beyond surface-level summaries — include definitions, derivations, mechanisms, formulas, worked examples, real-world applications, common misconceptions, and exam tips. Write in clear simple language a student can understand, but never skimp on depth. Output ONLY valid JSON matching the requested schema. No prose, no markdown.`;
 
 function buildUserPrompt(topic: string, format: string) {
   const count =
     format === "presentation"
-      ? "8 slide-style pages"
-      : "5 to 7 rich pages";
+      ? "8 to 10 slide-style pages"
+      : format === "pdf"
+        ? "8 to 12 deeply detailed pages"
+        : "6 to 8 rich pages";
+  const depth =
+    format === "pdf"
+      ? "Treat this as a printable study booklet. Cover the topic exhaustively: history/context, key definitions, all sub-concepts, formulas with derivations, multiple worked examples (with step-by-step solutions), diagrams to imagine, applications, FAQs, common mistakes, and revision points."
+      : "Cover the topic thoroughly with definitions, mechanisms, examples, applications, and exam tips.";
   return `Topic / request: "${topic}"
 Format: ${format}
-Generate ${count}. Each page MUST contain real, educational content (not placeholders). Use clear headings, short paragraphs and bullet points. Include a title page, introduction, core concepts, examples, summary, key questions, and key concepts. For EVERY page, add a concise "imageQuery" (3-6 words) describing a single educational illustration that would visually represent the page (e.g. "diagram of plant photosynthesis", "newton's laws apple falling"). Also include a top-level "coverImageQuery" for the title page hero illustration.
+${depth}
+Generate ${count}. Each page MUST contain rich, in-depth educational content (no placeholders, no fluff). Use clear headings, well-written paragraphs (3-6 sentences each) AND bullet points with concrete examples. Include a title page, introduction, multiple core-concept pages, worked examples, applications, summary, key questions, and key concepts. For EVERY page, add a precise, topic-specific "imageQuery" (4-7 words) describing the single most relevant educational illustration — be SPECIFIC to the page's content (e.g. "labeled diagram chloroplast photosynthesis", "newton second law free body diagram", "DNA double helix base pairing"). Also include a top-level "coverImageQuery" for the title page hero illustration that visually represents the overall topic.
 Return JSON of shape:
 {
   "title": string,
@@ -140,7 +147,7 @@ export const explainConcept = createServerFn({ method: "POST" })
           {
             role: "system",
             content:
-              "You are Nexora AI, a friendly student tutor. Solve doubts clearly, step by step. Use Markdown with bold headings, short paragraphs, numbered steps, and bullet points. Highlight key points in **bold**. Always include a brief 'Answer' line and an 'Explanation' section. If an image is provided, first transcribe any text or describe the diagram, then solve.",
+              "You are Nexora AI, an expert tutor giving DEEP, exam-ready explanations. Solve doubts thoroughly and rigorously. Use Markdown with bold section headings, short paragraphs, numbered steps, and bullet points. Always structure your response with these sections: **Answer** (one concise line), **Step-by-step Solution** (numbered, every step justified), **Concept Explained** (the underlying theory in depth — definitions, formulas, why it works), **Worked Example** (a similar example fully solved), **Common Mistakes** (pitfalls to avoid), and **Quick Recap** (3-5 bullets). Highlight key terms and final answers in **bold**. Show all working for math/physics. If an image is provided, first transcribe the question or describe the diagram, then solve.",
           },
           { role: "user", content: userContent },
         ],
