@@ -2,7 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Toaster, toast } from "sonner";
-import { ArrowLeft, Loader2, Sparkles } from "lucide-react";
+import { ArrowLeft, Loader2, Sparkles, UserRound } from "lucide-react";
 import { AnimatedBackground } from "@/components/AnimatedBackground";
 import { Logo } from "@/components/Logo";
 import { useAuth } from "@/lib/auth";
@@ -116,6 +116,25 @@ function LoginPage() {
               ? "New here? Create an account"
               : "Already have an account? Sign in"}
           </button>
+
+          <div className="my-5 flex items-center gap-3 text-[11px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+            <span className="h-px flex-1 bg-border" /> or <span className="h-px flex-1 bg-border" />
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              try { window.localStorage.setItem("nexora_guest", "1"); } catch {}
+              toast.success("Continuing as guest");
+              navigate({ to: redirect || "/", replace: true });
+            }}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-border bg-white px-5 py-3 text-sm font-bold text-ink transition hover:border-primary/40 hover:bg-secondary"
+          >
+            <UserRound className="h-4 w-4" /> Sign in as guest
+          </button>
+          <p className="mt-2 text-center text-[11px] font-medium text-muted-foreground">
+            Guest mode works on this device. Sign in to sync across devices.
+          </p>
         </motion.div>
       </main>
     </div>

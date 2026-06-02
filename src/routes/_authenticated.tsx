@@ -17,7 +17,8 @@ function AuthGate() {
       </div>
     );
   }
-  if (!isAuthenticated) {
+  const isGuest = typeof window !== "undefined" && window.localStorage.getItem("nexora_guest") === "1";
+  if (!isAuthenticated && !isGuest) {
     return <Navigate to="/login" search={{ redirect: location.pathname }} replace />;
   }
   return <Outlet />;
