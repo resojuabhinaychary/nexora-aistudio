@@ -8,7 +8,12 @@ function imageUrl(query: string, w = 1024, h = 576) {
   )}?width=${w}&height=${h}&nologo=true&model=flux`;
 }
 
-async function fetchImage(url: string, timeoutMs = 15000): Promise<string | null> {
+function unsplashUrl(query: string, w = 1024, h = 576) {
+  const q = (query || "education").trim().replace(/\s+/g, ",");
+  return `https://source.unsplash.com/${w}x${h}/?${encodeURIComponent(q)}`;
+}
+
+async function fetchOne(url: string, timeoutMs: number): Promise<string | null> {
   try {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -16,6 +21,7 @@ async function fetchImage(url: string, timeoutMs = 15000): Promise<string | null
     clearTimeout(t);
     if (!res.ok) return null;
     const blob = await res.blob();
+    if (!blob || blob.size < 1000) return null;
     return await new Promise((resolve) => {
       const r = new FileReader();
       r.onloadend = () => resolve(r.result as string);
@@ -25,6 +31,19 @@ async function fetchImage(url: string, timeoutMs = 15000): Promise<string | null
   } catch {
     return null;
   }
+}
+
+// Try multiple image sources so we (almost) always get a real photo/illustration.
+async function fetchImage(primaryUrl: string, query?: string, w = 1024, h = 576): Promise<string | null> {
+  const a = await fetchOne(primaryUrl, 25000);
+  if (a) return a;
+  if (query) {
+    const b = await fetchOne(unsplashUrl(query, w, h), 15000);
+    if (b) return b;
+    const c = await fetchOne(`https://loremflickr.com/${w}/${h}/${encodeURIComponent(query)}`, 12000);
+    if (c) return c;
+  }
+  return null;
 }
 
 // Soft pastel color palette for content boxes [bgR,bgG,bgB, borderR,borderG,borderB, textR,textG,textB]
@@ -55,12 +74,17 @@ export async function exportDocToPDF(doc: GeneratedDoc): Promise<{ blob: Blob; f
     });
   });
   const imagePromises = [
-    fetchImage(imageUrl(coverQ, 1024, 768)),
-    ...doc.pages.map((p) => fetchImage(imageUrl(p.imageQuery || p.title, 1024, 480))),
+    fetchImage(imageUrl(coverQ, 1024, 768), coverQ, 1024, 768),
+    ...doc.pages.map((p) => fetchImage(imageUrl(p.imageQuery || p.title, 1024, 480), p.imageQuery || p.title, 1024, 480)),
     ...doc.pages.map((p) =>
-      fetchImage(imageUrl((p.imageQuery || p.title) + " concept illustration colorful", 800, 600)),
+      fetchImage(
+        imageUrl((p.imageQuery || p.title) + " concept illustration colorful", 800, 600),
+        (p.imageQuery || p.title) + " concept",
+        800,
+        600,
+      ),
     ),
-    ...sectionQueries.map((q) => fetchImage(imageUrl(q.query, 800, 500))),
+    ...sectionQueries.map((q) => fetchImage(imageUrl(q.query, 800, 500), q.query, 800, 500)),
   ];
   const all = await Promise.all(imagePromises);
   const coverImg = all[0];
