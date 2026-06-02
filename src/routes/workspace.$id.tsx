@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { Toaster, toast } from "sonner";
-import { Sparkles } from "lucide-react";
+import { Share2, Sparkles } from "lucide-react";
 import { TopBar } from "@/components/workspace/TopBar";
 import { PagesSidebar } from "@/components/workspace/PagesSidebar";
 import { Canvas } from "@/components/workspace/Canvas";
@@ -26,6 +26,7 @@ function Workspace() {
   const [presenting, setPresenting] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [lastPdf, setLastPdf] = useState<{ blob: Blob; filename: string } | null>(null);
   const ask = useServerFn(explainConcept);
 
   useEffect(() => {
@@ -105,12 +106,33 @@ function Workspace() {
     setExporting(true);
     toast.loading("Building illustrated PDF…", { id: "pdf" });
     try {
-      await exportDocToPDF(project.doc);
-      toast.success("PDF downloaded", { id: "pdf" });
+      const out = await exportDocToPDF(project.doc);
+      setLastPdf(out);
+      toast.success("PDF downloaded — share it below", { id: "pdf" });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Export failed", { id: "pdf" });
     } finally {
       setExporting(false);
+    }
+  };
+
+  const handleShare = async () => {
+    if (!lastPdf) return;
+    const file = new File([lastPdf.blob], lastPdf.filename, { type: "application/pdf" });
+    const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };
+    try {
+      if (nav.canShare && nav.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: project?.title, text: `Study material: ${project?.title}` });
+        return;
+      }
+      if (navigator.share) {
+        await navigator.share({ title: project?.title, text: `Study material: ${project?.title}`, url: window.location.href });
+        return;
+      }
+      await navigator.clipboard.writeText(window.location.href);
+      toast.success("Workspace link copied to clipboard");
+    } catch (e) {
+      if ((e as Error)?.name !== "AbortError") toast.error("Couldn't open share sheet");
     }
   };
 
@@ -178,6 +200,27 @@ function Workspace() {
       {exporting && (
         <div className="pointer-events-none fixed inset-x-0 bottom-24 z-40 flex justify-center">
           <div className="rounded-full border border-border bg-white px-4 py-2 text-xs font-bold text-ink shadow-soft">Preparing your illustrated PDF…</div>
+        </div>
+      )}
+
+      {lastPdf && !exporting && (
+        <div className="fixed inset-x-0 bottom-24 z-40 flex justify-center px-4">
+          <div className="flex items-center gap-3 rounded-full border border-border bg-white px-4 py-2 shadow-card">
+            <span className="text-xs font-bold text-ink">PDF ready · {lastPdf.filename}</span>
+            <button
+              onClick={handleShare}
+              className="inline-flex items-center gap-1.5 rounded-full gradient-aurora px-4 py-1.5 text-xs font-bold text-white shadow-glow transition hover:scale-[1.03]"
+            >
+              <Share2 className="h-3.5 w-3.5" /> Share
+            </button>
+            <button
+              onClick={() => setLastPdf(null)}
+              className="text-xs font-semibold text-muted-foreground hover:text-ink"
+              aria-label="Dismiss"
+            >
+              ✕
+            </button>
+          </div>
         </div>
       )}
     </div>
