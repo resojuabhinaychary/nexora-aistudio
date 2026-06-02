@@ -37,27 +37,38 @@ const BOX_PALETTE: Array<{ bg: [number, number, number]; border: [number, number
   { bg: [240, 240, 245], border: [205, 205, 215], accent: [80, 90, 120] },    // slate
 ];
 
-export async function exportDocToPDF(doc: GeneratedDoc) {
+export async function exportDocToPDF(doc: GeneratedDoc): Promise<{ blob: Blob; filename: string }> {
   const pdf = new jsPDF({ unit: "pt", format: "a4" });
   const pageW = pdf.internal.pageSize.getWidth();
   const pageH = pdf.internal.pageSize.getHeight();
   const margin = 48;
   const contentW = pageW - margin * 2;
 
-  // Pre-fetch all images in parallel (one cover + one per page + one per section illustration where useful)
+  // Pre-fetch all images in parallel: cover + per-page hero + per-page filler + per-section inline
   const coverQ = doc.coverImageQuery || doc.title;
+  const sectionQueries: { pIdx: number; sIdx: number; query: string }[] = [];
+  doc.pages.forEach((p, pIdx) => {
+    p.sections.forEach((s, sIdx) => {
+      if (s.paragraph && s.paragraph.length > 40) {
+        sectionQueries.push({ pIdx, sIdx, query: `${s.heading} ${p.title} educational diagram` });
+      }
+    });
+  });
   const imagePromises = [
     fetchImage(imageUrl(coverQ, 1024, 768)),
     ...doc.pages.map((p) => fetchImage(imageUrl(p.imageQuery || p.title, 1024, 480))),
-    // Secondary "filler" illustrations to fill empty space at the bottom of pages
     ...doc.pages.map((p) =>
       fetchImage(imageUrl((p.imageQuery || p.title) + " concept illustration colorful", 800, 600)),
     ),
+    ...sectionQueries.map((q) => fetchImage(imageUrl(q.query, 800, 500))),
   ];
   const all = await Promise.all(imagePromises);
   const coverImg = all[0];
   const pageImgs = all.slice(1, 1 + doc.pages.length);
-  const fillerImgs = all.slice(1 + doc.pages.length);
+  const fillerImgs = all.slice(1 + doc.pages.length, 1 + doc.pages.length * 2);
+  const sectionImgsRaw = all.slice(1 + doc.pages.length * 2);
+  const sectionImgMap = new Map<string, string | null>();
+  sectionQueries.forEach((q, i) => sectionImgMap.set(`${q.pIdx}:${q.sIdx}`, sectionImgsRaw[i]));
 
   const drawHeader = (subject: string) => {
     pdf.setFillColor(245, 248, 255);
@@ -78,6 +89,49 @@ export async function exportDocToPDF(doc: GeneratedDoc) {
     pdf.setTextColor(150, 160, 180);
     pdf.setFont("helvetica", "normal");
     pdf.text(`Page ${n}`, pageW / 2, pageH - 18, { align: "center" });
+  };
+
+  // Draw a small inline image card (or colored placeholder) below a paragraph.
+  const drawInlineImageCard = (
+    y: number,
+    img: string | null,
+    caption: string,
+    palette: (typeof BOX_PALETTE)[number],
+    subject: string,
+  ): number => {
+    const imgH = 130;
+    const cardH = imgH + 30;
+    if (y + cardH > pageH - 60) {
+      drawFooter(pdf.getNumberOfPages());
+      y = newPage(subject);
+    }
+    pdf.setFillColor(...palette.bg);
+    pdf.setDrawColor(...palette.border);
+    pdf.setLineWidth(0.8);
+    pdf.roundedRect(margin, y, contentW, cardH, 10, 10, "FD");
+    if (img) {
+      try {
+        pdf.addImage(img, "JPEG", margin + 8, y + 8, contentW - 16, imgH, undefined, "FAST");
+      } catch {
+        // fall through to placeholder
+        pdf.setFillColor(...palette.accent);
+        pdf.roundedRect(margin + 8, y + 8, contentW - 16, imgH, 8, 8, "F");
+      }
+    } else {
+      // Colored placeholder so the PDF still has visual content
+      pdf.setFillColor(...palette.accent);
+      pdf.roundedRect(margin + 8, y + 8, contentW - 16, imgH, 8, 8, "F");
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(13);
+      pdf.setTextColor(255, 255, 255);
+      const c = pdf.splitTextToSize(caption, contentW - 40);
+      pdf.text(c, pageW / 2, y + 8 + imgH / 2, { align: "center" });
+    }
+    pdf.setFont("helvetica", "italic");
+    pdf.setFontSize(9);
+    pdf.setTextColor(120, 130, 160);
+    pdf.text(`Fig. ${caption}`, pageW / 2, y + cardH - 10, { align: "center" });
+    return y + cardH + 10;
   };
 
   const newPage = (subject: string) => {
@@ -257,6 +311,11 @@ export async function exportDocToPDF(doc: GeneratedDoc) {
         bullets: sec.bullets,
         subject: doc.subject || "",
       });
+      // Inline illustration right below paragraphs so concepts are easier to grasp
+      const inlineImg = sectionImgMap.get(`${pIdx}:${sIdx}`);
+      if (inlineImg !== undefined) {
+        y = drawInlineImageCard(y, inlineImg, sec.heading, palette, doc.subject || "");
+      }
     });
 
     // Fill remaining empty space at the bottom of the page with a relevant illustration
@@ -311,5 +370,8 @@ export async function exportDocToPDF(doc: GeneratedDoc) {
   drawFooter(pdf.getNumberOfPages());
 
   const safe = doc.title.replace(/[^a-z0-9]+/gi, "_").slice(0, 40) || "nexora";
-  pdf.save(`${safe}.pdf`);
+  const filename = `${safe}.pdf`;
+  const blob = pdf.output("blob");
+  pdf.save(filename);
+  return { blob, filename };
 }
