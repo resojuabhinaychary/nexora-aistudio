@@ -8,7 +8,12 @@ function imageUrl(query: string, w = 1024, h = 576) {
   )}?width=${w}&height=${h}&nologo=true&model=flux`;
 }
 
-async function fetchImage(url: string, timeoutMs = 15000): Promise<string | null> {
+function unsplashUrl(query: string, w = 1024, h = 576) {
+  const q = (query || "education").trim().replace(/\s+/g, ",");
+  return `https://source.unsplash.com/${w}x${h}/?${encodeURIComponent(q)}`;
+}
+
+async function fetchOne(url: string, timeoutMs: number): Promise<string | null> {
   try {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -16,6 +21,7 @@ async function fetchImage(url: string, timeoutMs = 15000): Promise<string | null
     clearTimeout(t);
     if (!res.ok) return null;
     const blob = await res.blob();
+    if (!blob || blob.size < 1000) return null;
     return await new Promise((resolve) => {
       const r = new FileReader();
       r.onloadend = () => resolve(r.result as string);
@@ -25,6 +31,19 @@ async function fetchImage(url: string, timeoutMs = 15000): Promise<string | null
   } catch {
     return null;
   }
+}
+
+// Try multiple image sources so we (almost) always get a real photo/illustration.
+async function fetchImage(primaryUrl: string, query?: string, w = 1024, h = 576): Promise<string | null> {
+  const a = await fetchOne(primaryUrl, 25000);
+  if (a) return a;
+  if (query) {
+    const b = await fetchOne(unsplashUrl(query, w, h), 15000);
+    if (b) return b;
+    const c = await fetchOne(`https://loremflickr.com/${w}/${h}/${encodeURIComponent(query)}`, 12000);
+    if (c) return c;
+  }
+  return null;
 }
 
 // Soft pastel color palette for content boxes [bgR,bgG,bgB, borderR,borderG,borderB, textR,textG,textB]
@@ -55,12 +74,17 @@ export async function exportDocToPDF(doc: GeneratedDoc): Promise<{ blob: Blob; f
     });
   });
   const imagePromises = [
-    fetchImage(imageUrl(coverQ, 1024, 768)),
-    ...doc.pages.map((p) => fetchImage(imageUrl(p.imageQuery || p.title, 1024, 480))),
+    fetchImage(imageUrl(coverQ, 1024, 768), coverQ, 1024, 768),
+    ...doc.pages.map((p) => fetchImage(imageUrl(p.imageQuery || p.title, 1024, 480), p.imageQuery || p.title, 1024, 480)),
     ...doc.pages.map((p) =>
-      fetchImage(imageUrl((p.imageQuery || p.title) + " concept illustration colorful", 800, 600)),
+      fetchImage(
+        imageUrl((p.imageQuery || p.title) + " concept illustration colorful", 800, 600),
+        (p.imageQuery || p.title) + " concept",
+        800,
+        600,
+      ),
     ),
-    ...sectionQueries.map((q) => fetchImage(imageUrl(q.query, 800, 500))),
+    ...sectionQueries.map((q) => fetchImage(imageUrl(q.query, 800, 500), q.query, 800, 500)),
   ];
   const all = await Promise.all(imagePromises);
   const coverImg = all[0];
@@ -91,6 +115,43 @@ export async function exportDocToPDF(doc: GeneratedDoc): Promise<{ blob: Blob; f
     pdf.text(`Page ${n}`, pageW / 2, pageH - 18, { align: "center" });
   };
 
+  // Draw an attractive gradient illustration placeholder so empty rectangles
+  // never appear in the PDF when an image fetch fails.
+  const drawIllustratedPlaceholder = (
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    title: string,
+    palette: (typeof BOX_PALETTE)[number],
+  ) => {
+    // Soft vertical gradient using palette colors
+    const [r1, g1, b1] = palette.bg;
+    const [r2, g2, b2] = palette.accent;
+    const steps = Math.max(40, Math.floor(h));
+    for (let i = 0; i < steps; i++) {
+      const t = i / steps;
+      const r = Math.round(r1 + (r2 - r1) * t * 0.55);
+      const g = Math.round(g1 + (g2 - g1) * t * 0.55);
+      const b = Math.round(b1 + (b2 - b1) * t * 0.55);
+      pdf.setFillColor(r, g, b);
+      pdf.rect(x, y + (h * i) / steps, w, h / steps + 0.6, "F");
+    }
+    // Decorative circles
+    pdf.setFillColor(255, 255, 255);
+    // @ts-ignore - jsPDF supports opacity via GState; falling back to light fill
+    pdf.circle(x + w - 40, y + 30, 22, "F");
+    pdf.circle(x + 30, y + h - 26, 16, "F");
+    pdf.setFillColor(...palette.accent);
+    pdf.circle(x + w / 2, y + h / 2 - 4, Math.min(28, h / 5), "F");
+    // Title text centered
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(Math.min(18, Math.max(11, h / 12)));
+    pdf.setTextColor(255, 255, 255);
+    const lines = pdf.splitTextToSize(title, w - 40);
+    pdf.text(lines, x + w / 2, y + h / 2 + 30, { align: "center" });
+  };
+
   // Draw a small inline image card (or colored placeholder) below a paragraph.
   const drawInlineImageCard = (
     y: number,
@@ -113,19 +174,10 @@ export async function exportDocToPDF(doc: GeneratedDoc): Promise<{ blob: Blob; f
       try {
         pdf.addImage(img, "JPEG", margin + 8, y + 8, contentW - 16, imgH, undefined, "FAST");
       } catch {
-        // fall through to placeholder
-        pdf.setFillColor(...palette.accent);
-        pdf.roundedRect(margin + 8, y + 8, contentW - 16, imgH, 8, 8, "F");
+        drawIllustratedPlaceholder(margin + 8, y + 8, contentW - 16, imgH, caption, palette);
       }
     } else {
-      // Colored placeholder so the PDF still has visual content
-      pdf.setFillColor(...palette.accent);
-      pdf.roundedRect(margin + 8, y + 8, contentW - 16, imgH, 8, 8, "F");
-      pdf.setFont("helvetica", "bold");
-      pdf.setFontSize(13);
-      pdf.setTextColor(255, 255, 255);
-      const c = pdf.splitTextToSize(caption, contentW - 40);
-      pdf.text(c, pageW / 2, y + 8 + imgH / 2, { align: "center" });
+      drawIllustratedPlaceholder(margin + 8, y + 8, contentW - 16, imgH, caption, palette);
     }
     pdf.setFont("helvetica", "italic");
     pdf.setFontSize(9);
@@ -227,14 +279,19 @@ export async function exportDocToPDF(doc: GeneratedDoc): Promise<{ blob: Blob; f
     pdf.setFillColor(r, g, b);
     pdf.rect(0, i, pageW, 1, "F");
   }
+  // Cover hero — always render a visual (image or illustrated placeholder)
+  pdf.setFillColor(255, 255, 255);
+  pdf.setDrawColor(220, 228, 245);
+  pdf.roundedRect(margin - 6, 54, contentW + 12, 220, 14, 14, "FD");
+  let coverDrawn = false;
   if (coverImg) {
     try {
-      // White rounded image card
-      pdf.setFillColor(255, 255, 255);
-      pdf.setDrawColor(220, 228, 245);
-      pdf.roundedRect(margin - 6, 54, contentW + 12, 220, 14, 14, "FD");
       pdf.addImage(coverImg, "JPEG", margin, 60, contentW, 208, undefined, "FAST");
+      coverDrawn = true;
     } catch {}
+  }
+  if (!coverDrawn) {
+    drawIllustratedPlaceholder(margin, 60, contentW, 208, doc.title, BOX_PALETTE[0]);
   }
   pdf.setTextColor(20, 25, 50);
   pdf.setFont("helvetica", "bold");
@@ -287,17 +344,25 @@ export async function exportDocToPDF(doc: GeneratedDoc): Promise<{ blob: Blob; f
     pdf.line(margin, y + 4, margin + 50, y + 4);
     y += 18;
 
-    // Illustration in a soft rounded card
-    const img = pageImgs[pIdx];
-    if (img) {
-      try {
-        const imgH = 180;
-        pdf.setFillColor(248, 250, 255);
-        pdf.setDrawColor(220, 228, 245);
-        pdf.roundedRect(margin, y, contentW, imgH + 12, 12, 12, "FD");
-        pdf.addImage(img, "JPEG", margin + 6, y + 6, contentW - 12, imgH, undefined, "FAST");
-        y += imgH + 24;
-      } catch {}
+    // Illustration in a soft rounded card — always render so layout looks intentional
+    {
+      const img = pageImgs[pIdx];
+      const imgH = 180;
+      pdf.setFillColor(248, 250, 255);
+      pdf.setDrawColor(220, 228, 245);
+      pdf.roundedRect(margin, y, contentW, imgH + 12, 12, 12, "FD");
+      let drew = false;
+      if (img) {
+        try {
+          pdf.addImage(img, "JPEG", margin + 6, y + 6, contentW - 12, imgH, undefined, "FAST");
+          drew = true;
+        } catch {}
+      }
+      if (!drew) {
+        const pal = BOX_PALETTE[pIdx % BOX_PALETTE.length];
+        drawIllustratedPlaceholder(margin + 6, y + 6, contentW - 12, imgH, page.title, pal);
+      }
+      y += imgH + 24;
     }
 
     // Sections — each one rendered as a colored bordered callout box
@@ -320,22 +385,30 @@ export async function exportDocToPDF(doc: GeneratedDoc): Promise<{ blob: Blob; f
 
     // Fill remaining empty space at the bottom of the page with a relevant illustration
     const remaining = pageH - 60 - y;
-    const filler = fillerImgs[pIdx];
-    if (filler && remaining > 160) {
-      try {
-        const imgH = Math.min(remaining - 24, 240);
-        const imgW = Math.min(contentW, imgH * 1.4);
-        const xOffset = margin + (contentW - imgW) / 2;
-        pdf.setFillColor(250, 251, 255);
-        pdf.setDrawColor(225, 232, 248);
-        pdf.roundedRect(xOffset - 6, y, imgW + 12, imgH + 28, 12, 12, "FD");
-        pdf.addImage(filler, "JPEG", xOffset, y + 6, imgW, imgH, undefined, "FAST");
-        pdf.setFont("helvetica", "italic");
-        pdf.setFontSize(9);
-        pdf.setTextColor(120, 130, 160);
-        const caption = page.imageQuery || page.title;
-        pdf.text(`Fig. ${pIdx + 1} — ${caption}`, xOffset + imgW / 2, y + imgH + 20, { align: "center" });
-      } catch {}
+    if (remaining > 160) {
+      const filler = fillerImgs[pIdx];
+      const imgH = Math.min(remaining - 24, 240);
+      const imgW = Math.min(contentW, imgH * 1.4);
+      const xOffset = margin + (contentW - imgW) / 2;
+      pdf.setFillColor(250, 251, 255);
+      pdf.setDrawColor(225, 232, 248);
+      pdf.roundedRect(xOffset - 6, y, imgW + 12, imgH + 28, 12, 12, "FD");
+      let drew = false;
+      if (filler) {
+        try {
+          pdf.addImage(filler, "JPEG", xOffset, y + 6, imgW, imgH, undefined, "FAST");
+          drew = true;
+        } catch {}
+      }
+      if (!drew) {
+        const pal = BOX_PALETTE[(pIdx + 1) % BOX_PALETTE.length];
+        drawIllustratedPlaceholder(xOffset, y + 6, imgW, imgH, page.imageQuery || page.title, pal);
+      }
+      pdf.setFont("helvetica", "italic");
+      pdf.setFontSize(9);
+      pdf.setTextColor(120, 130, 160);
+      const caption = page.imageQuery || page.title;
+      pdf.text(`Fig. ${pIdx + 1} — ${caption}`, xOffset + imgW / 2, y + imgH + 20, { align: "center" });
     }
     drawFooter(pIdx + 2);
   });
