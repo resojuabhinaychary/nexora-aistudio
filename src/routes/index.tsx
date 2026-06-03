@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { motion } from "framer-motion";
-import { Sparkles, MessageCircleQuestion, BookOpen, Presentation, FileDown, Library, ArrowRight, User2, Instagram } from "lucide-react";
+import { Sparkles, MessageCircleQuestion, BookOpen, Presentation, FileDown, Library, ArrowRight, User2, Instagram, GraduationCap } from "lucide-react";
 import { AnimatedBackground } from "@/components/AnimatedBackground";
 import { Logo } from "@/components/Logo";
 
@@ -52,6 +52,15 @@ const TOOLS = [
     icon: FileDown,
     bg: "gradient-peach",
     emoji: "📘",
+  },
+  {
+    key: "exam",
+    to: "/exam" as const,
+    label: "Exam Preparer",
+    desc: "Practice unlimited MCQs with instant feedback and a downloadable report.",
+    icon: GraduationCap,
+    bg: "gradient-rose",
+    emoji: "🎯",
   },
 ];
 
