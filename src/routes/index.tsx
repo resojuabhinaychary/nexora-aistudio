@@ -59,7 +59,7 @@ const TOOLS = [
     label: "Exam Preparer",
     desc: "Practice unlimited MCQs with instant feedback and a downloadable report.",
     icon: GraduationCap,
-    bg: "gradient-aurora",
+    bg: "gradient-rose",
     emoji: "🎯",
   },
 ];
