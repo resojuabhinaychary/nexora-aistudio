@@ -43,6 +43,11 @@ async function fetchImage(primaryUrl: string, query?: string, w = 1024, h = 576)
     const c = await fetchOne(`https://loremflickr.com/${w}/${h}/${encodeURIComponent(query)}`, 12000);
     if (c) return c;
   }
+  // Last-resort: picsum always returns a real photo (topic-agnostic but never fails),
+  // seeded by the query so the same section gets a stable image.
+  const seed = encodeURIComponent((query || "nexora").slice(0, 40));
+  const d = await fetchOne(`https://picsum.photos/seed/${seed}/${w}/${h}`, 12000);
+  if (d) return d;
   return null;
 }
 
