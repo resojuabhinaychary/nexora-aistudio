@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { Toaster, toast } from "sonner";
 import { Share2, Sparkles } from "lucide-react";
@@ -12,6 +12,7 @@ import { getProject, saveProject, type Project } from "@/lib/projects";
 import { exportDocToPDF } from "@/lib/pdf";
 import { explainConcept } from "@/lib/ai.functions";
 import type { GeneratedPage } from "@/lib/ai.functions";
+import { ensureDocEducationalImages } from "@/lib/educationalImages";
 
 export const Route = createFileRoute("/workspace/$id")({
   head: () => ({ meta: [{ title: "Workspace — Nexora AI" }] }),
@@ -45,13 +46,13 @@ function Workspace() {
     return () => clearTimeout(t);
   }, [project]);
 
-  const update = (updater: (p: Project) => Project) => setProject((p) => (p ? updater(p) : p));
+  const update = useCallback((updater: (p: Project) => Project) => setProject((p) => (p ? updater(p) : p)), []);
 
-  const updatePage = (next: GeneratedPage) =>
+  const updatePage = useCallback((next: GeneratedPage) =>
     update((p) => {
       const pages = p.doc.pages.map((pg, i) => (i === activePage ? next : pg));
       return { ...p, doc: { ...p.doc, pages } };
-    });
+    }), [activePage, update]);
 
   const addPage = () =>
     update((p) => {
@@ -106,7 +107,11 @@ function Workspace() {
     setExporting(true);
     toast.loading("Building illustrated PDF…", { id: "pdf" });
     try {
-      const out = await exportDocToPDF(project.doc);
+      toast.loading("Generating and verifying educational images…", { id: "pdf" });
+      const docWithImages = await ensureDocEducationalImages(project.doc);
+      setProject((p) => (p ? { ...p, doc: docWithImages } : p));
+      toast.loading("Embedding verified images into PDF…", { id: "pdf" });
+      const out = await exportDocToPDF(docWithImages);
       setLastPdf(out);
       toast.success("PDF downloaded — share it below", { id: "pdf" });
     } catch (e) {
