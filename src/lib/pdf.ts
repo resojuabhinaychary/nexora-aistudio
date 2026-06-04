@@ -54,6 +54,7 @@ export async function exportDocToPDF(doc: GeneratedDoc): Promise<{ blob: Blob; f
     palette: (typeof BOX_PALETTE)[number],
     subject: string,
   ): number => {
+    if (!img) return y;
     const imgH = 130;
     const cardH = imgH + 30;
     if (y + cardH > pageH - 60) {
@@ -64,7 +65,6 @@ export async function exportDocToPDF(doc: GeneratedDoc): Promise<{ blob: Blob; f
     pdf.setDrawColor(...palette.border);
     pdf.setLineWidth(0.8);
     pdf.roundedRect(margin, y, contentW, cardH, 10, 10, "FD");
-    if (!img) return y;
     try {
       pdf.addImage(img, "PNG", margin + 8, y + 8, contentW - 16, imgH, undefined, "FAST");
     } catch {
