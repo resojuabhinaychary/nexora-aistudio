@@ -132,7 +132,7 @@ export async function exportDocToPDF(doc: GeneratedDoc): Promise<{ blob: Blob; f
     pdf.text(lines, x + w / 2, y + h / 2 + 30, { align: "center" });
   };
 
-  // Draw a small inline image card (or colored placeholder) below a paragraph.
+  // Draw a small inline image card below a paragraph only when a verified image exists.
   const drawInlineImageCard = (
     y: number,
     img: string | null,
@@ -150,14 +150,11 @@ export async function exportDocToPDF(doc: GeneratedDoc): Promise<{ blob: Blob; f
     pdf.setDrawColor(...palette.border);
     pdf.setLineWidth(0.8);
     pdf.roundedRect(margin, y, contentW, cardH, 10, 10, "FD");
-    if (img) {
-      try {
-        pdf.addImage(img, "JPEG", margin + 8, y + 8, contentW - 16, imgH, undefined, "FAST");
-      } catch {
-        drawIllustratedPlaceholder(margin + 8, y + 8, contentW - 16, imgH, caption, palette);
-      }
-    } else {
-      drawIllustratedPlaceholder(margin + 8, y + 8, contentW - 16, imgH, caption, palette);
+    if (!img) return y;
+    try {
+      pdf.addImage(img, "PNG", margin + 8, y + 8, contentW - 16, imgH, undefined, "FAST");
+    } catch {
+      return y;
     }
     pdf.setFont("helvetica", "italic");
     pdf.setFontSize(9);
@@ -259,19 +256,22 @@ export async function exportDocToPDF(doc: GeneratedDoc): Promise<{ blob: Blob; f
     pdf.setFillColor(r, g, b);
     pdf.rect(0, i, pageW, 1, "F");
   }
-  // Cover hero — always render a visual (image or illustrated placeholder)
-  pdf.setFillColor(255, 255, 255);
-  pdf.setDrawColor(220, 228, 245);
-  pdf.roundedRect(margin - 6, 54, contentW + 12, 220, 14, 14, "FD");
+  // Cover hero — render only verified preview image data.
   let coverDrawn = false;
   if (coverImg) {
     try {
-      pdf.addImage(coverImg, "JPEG", margin, 60, contentW, 208, undefined, "FAST");
+      pdf.setFillColor(255, 255, 255);
+      pdf.setDrawColor(220, 228, 245);
+      pdf.roundedRect(margin - 6, 54, contentW + 12, 220, 14, 14, "FD");
+      pdf.addImage(coverImg, "PNG", margin, 60, contentW, 208, undefined, "FAST");
       coverDrawn = true;
     } catch {}
   }
   if (!coverDrawn) {
-    drawIllustratedPlaceholder(margin, 60, contentW, 208, doc.title, BOX_PALETTE[0]);
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(11);
+    pdf.setTextColor(120, 130, 160);
+    pdf.text(EDUCATIONAL_IMAGE_UNAVAILABLE, margin, 100);
   }
   pdf.setTextColor(20, 25, 50);
   pdf.setFont("helvetica", "bold");
