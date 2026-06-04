@@ -31,21 +31,23 @@ function EditableText({
 export function Canvas({
   page,
   pageIndex,
+  subject,
   onChange,
 }: {
   page: GeneratedPage;
   pageIndex: number;
+  subject?: string;
   onChange: (next: GeneratedPage) => void;
 }) {
   const [imageState, setImageState] = useState<"idle" | "loading" | "failed">("idle");
   const imageContext = useMemo(
     () => ({
-      subject: page.title,
+      subject,
       chapter: page.subtitle,
       topic: page.imageQuery || page.title,
       keywords: page.sections.map((s) => s.heading).join(", "),
     }),
-    [page.imageQuery, page.sections, page.subtitle, page.title],
+    [page.imageQuery, page.sections, page.subtitle, page.title, subject],
   );
   const imageKey = useMemo(() => buildEducationalImageKey(imageContext, 1024, 576), [imageContext]);
   const verifiedImage = page.educationalImage?.key === imageKey ? page.educationalImage.dataUrl : null;
