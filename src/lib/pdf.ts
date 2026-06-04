@@ -1,5 +1,6 @@
 import jsPDF from "jspdf";
 import type { GeneratedDoc } from "./ai.functions";
+import { EDUCATIONAL_IMAGE_UNAVAILABLE } from "./educationalImages";
 
 function imageUrl(query: string, w = 1024, h = 576) {
   const q = (query || "education illustration").trim();
@@ -67,43 +68,11 @@ export async function exportDocToPDF(doc: GeneratedDoc): Promise<{ blob: Blob; f
   const margin = 48;
   const contentW = pageW - margin * 2;
 
-  // Pre-fetch all images in parallel: cover + per-page hero + per-page filler + per-section inline
-  const subj = doc.subject || "";
-  const topicCtx = `${subj} ${doc.title}`.trim();
-  const coverQ = `${doc.coverImageQuery || doc.title} — ${topicCtx} labeled scientific diagram`;
-  const sectionQueries: { pIdx: number; sIdx: number; query: string }[] = [];
-  doc.pages.forEach((p, pIdx) => {
-    p.sections.forEach((s, sIdx) => {
-      if (s.paragraph && s.paragraph.length > 40) {
-        sectionQueries.push({
-          pIdx,
-          sIdx,
-          query: `${s.heading} — ${p.title} (${subj}) labeled educational diagram, textbook illustration, parts labeled`,
-        });
-      }
-    });
-  });
-  const imagePromises = [
-    fetchImage(imageUrl(coverQ, 1024, 768), coverQ, 1024, 768),
-    ...doc.pages.map((p) => {
-      const q = `${p.imageQuery || p.title} — ${topicCtx} labeled educational diagram`;
-      return fetchImage(imageUrl(q, 1024, 480), q, 1024, 480);
-    }),
-    ...doc.pages.map((p) =>
-      {
-        const q = `${p.imageQuery || p.title} — ${topicCtx} concept infographic, labeled flowchart, textbook style`;
-        return fetchImage(imageUrl(q, 800, 600), q, 800, 600);
-      },
-    ),
-    ...sectionQueries.map((q) => fetchImage(imageUrl(q.query, 800, 500), q.query, 800, 500)),
-  ];
-  const all = await Promise.all(imagePromises);
-  const coverImg = all[0];
-  const pageImgs = all.slice(1, 1 + doc.pages.length);
-  const fillerImgs = all.slice(1 + doc.pages.length, 1 + doc.pages.length * 2);
-  const sectionImgsRaw = all.slice(1 + doc.pages.length * 2);
-  const sectionImgMap = new Map<string, string | null>();
-  sectionQueries.forEach((q, i) => sectionImgMap.set(`${q.pIdx}:${q.sIdx}`, sectionImgsRaw[i]));
+  // Use only verified images already generated for the preview/export flow.
+  // No placeholder, random stock, gradient, filler, or PDF-only images are drawn.
+  const pageImgs = doc.pages.map((p) => p.educationalImage?.dataUrl || null);
+  const coverImg = pageImgs.find(Boolean) || null;
+  const sectionImgMap = new Map<string, string>();
 
   const drawHeader = (subject: string) => {
     pdf.setFillColor(245, 248, 255);
