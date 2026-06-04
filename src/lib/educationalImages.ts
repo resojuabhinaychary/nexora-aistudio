@@ -1,3 +1,5 @@
+import type { GeneratedDoc } from "./ai.functions";
+
 export type EducationalImageContext = {
   subject?: string;
   chapter?: string;
@@ -163,6 +165,25 @@ export async function fetchVerifiedEducationalImage(
     if (verified) return { dataUrl: verified, key, prompt };
   }
   return null;
+}
+
+export async function ensureDocEducationalImages(doc: GeneratedDoc): Promise<GeneratedDoc> {
+  const pages = await Promise.all(
+    doc.pages.map(async (page) => {
+      const context = {
+        subject: doc.subject,
+        chapter: page.title,
+        topic: page.imageQuery || page.title,
+        keywords: page.sections.map((s) => s.heading).join(", "),
+      };
+      const key = buildEducationalImageKey(context, 1024, 576);
+      if (page.educationalImage?.key === key || page.unavailableImageKey === key) return page;
+      const result = await fetchVerifiedEducationalImage(context, 1024, 576);
+      if (result) return { ...page, educationalImage: result, unavailableImageKey: undefined };
+      return { ...page, educationalImage: undefined, unavailableImageKey: key };
+    }),
+  );
+  return { ...doc, pages };
 }
 
 export { UNAVAILABLE as EDUCATIONAL_IMAGE_UNAVAILABLE };
