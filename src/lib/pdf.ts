@@ -2,55 +2,6 @@ import jsPDF from "jspdf";
 import type { GeneratedDoc } from "./ai.functions";
 import { EDUCATIONAL_IMAGE_UNAVAILABLE } from "./educationalImages";
 
-function imageUrl(query: string, w = 1024, h = 576) {
-  const q = (query || "education illustration").trim();
-  return `https://image.pollinations.ai/prompt/${encodeURIComponent(
-    q +
-      ", labeled scientific educational diagram, textbook illustration, clearly labeled parts with arrows and captions, flat vector infographic, clean white background, NO photo, NO people, NO landscape, NO city, NO building, NO scenery",
-  )}?width=${w}&height=${h}&nologo=true&model=flux`;
-}
-
-async function fetchOne(url: string, timeoutMs: number): Promise<string | null> {
-  try {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), timeoutMs);
-    const res = await fetch(url, { signal: ctrl.signal });
-    clearTimeout(t);
-    if (!res.ok) return null;
-    const blob = await res.blob();
-    if (!blob || blob.size < 1000) return null;
-    return await new Promise((resolve) => {
-      const r = new FileReader();
-      r.onloadend = () => resolve(r.result as string);
-      r.onerror = () => resolve(null);
-      r.readAsDataURL(blob);
-    });
-  } catch {
-    return null;
-  }
-}
-
-// Try multiple image sources so we (almost) always get a real photo/illustration.
-// Educational-only image fetch. We ONLY use AI-generated topic-specific
-// diagrams (pollinations/flux with a strict educational prompt). We do NOT
-// fall back to random stock photo sources (Unsplash, LoremFlickr, Picsum)
-// because those return city/beach/landscape photos that are irrelevant to
-// the topic. If the AI generation fails, the caller draws an illustrated
-// titled placeholder instead — which is still topic-relevant.
-async function fetchImage(
-  primaryUrl: string,
-  _query?: string,
-  _w = 1024,
-  _h = 576,
-): Promise<string | null> {
-  // Try the topic-specific educational diagram twice (transient failures).
-  const a = await fetchOne(primaryUrl, 30000);
-  if (a) return a;
-  const b = await fetchOne(primaryUrl + "&retry=1", 20000);
-  if (b) return b;
-  return null;
-}
-
 // Soft pastel color palette for content boxes [bgR,bgG,bgB, borderR,borderG,borderB, textR,textG,textB]
 const BOX_PALETTE: Array<{ bg: [number, number, number]; border: [number, number, number]; accent: [number, number, number] }> = [
   { bg: [235, 244, 255], border: [180, 206, 245], accent: [60, 110, 220] },   // sky
@@ -93,43 +44,6 @@ export async function exportDocToPDF(doc: GeneratedDoc): Promise<{ blob: Blob; f
     pdf.setTextColor(150, 160, 180);
     pdf.setFont("helvetica", "normal");
     pdf.text(`Page ${n}`, pageW / 2, pageH - 18, { align: "center" });
-  };
-
-  // Draw an attractive gradient illustration placeholder so empty rectangles
-  // never appear in the PDF when an image fetch fails.
-  const drawIllustratedPlaceholder = (
-    x: number,
-    y: number,
-    w: number,
-    h: number,
-    title: string,
-    palette: (typeof BOX_PALETTE)[number],
-  ) => {
-    // Soft vertical gradient using palette colors
-    const [r1, g1, b1] = palette.bg;
-    const [r2, g2, b2] = palette.accent;
-    const steps = Math.max(40, Math.floor(h));
-    for (let i = 0; i < steps; i++) {
-      const t = i / steps;
-      const r = Math.round(r1 + (r2 - r1) * t * 0.55);
-      const g = Math.round(g1 + (g2 - g1) * t * 0.55);
-      const b = Math.round(b1 + (b2 - b1) * t * 0.55);
-      pdf.setFillColor(r, g, b);
-      pdf.rect(x, y + (h * i) / steps, w, h / steps + 0.6, "F");
-    }
-    // Decorative circles
-    pdf.setFillColor(255, 255, 255);
-    // @ts-ignore - jsPDF supports opacity via GState; falling back to light fill
-    pdf.circle(x + w - 40, y + 30, 22, "F");
-    pdf.circle(x + 30, y + h - 26, 16, "F");
-    pdf.setFillColor(...palette.accent);
-    pdf.circle(x + w / 2, y + h / 2 - 4, Math.min(28, h / 5), "F");
-    // Title text centered
-    pdf.setFont("helvetica", "bold");
-    pdf.setFontSize(Math.min(18, Math.max(11, h / 12)));
-    pdf.setTextColor(255, 255, 255);
-    const lines = pdf.splitTextToSize(title, w - 40);
-    pdf.text(lines, x + w / 2, y + h / 2 + 30, { align: "center" });
   };
 
   // Draw a small inline image card below a paragraph only when a verified image exists.
