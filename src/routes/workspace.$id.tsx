@@ -158,7 +158,7 @@ function Workspace() {
     return (
       <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white p-4 md:p-8" onClick={() => setPresenting(false)}>
         <div className="w-full max-w-5xl" onClick={(e) => e.stopPropagation()}>
-          <Canvas page={pg} pageIndex={activePage} onChange={updatePage} />
+          <Canvas page={pg} pageIndex={activePage} subject={project.doc.subject} onChange={updatePage} />
           <div className="mt-6 flex items-center justify-center gap-3 text-sm font-bold text-ink">
             <button onClick={() => setActivePage((i) => Math.max(0, i - 1))} className="rounded-xl border border-border bg-white px-4 py-2">← Prev</button>
             <span className="px-2">{activePage + 1} / {totalPages}</span>
@@ -185,7 +185,7 @@ function Workspace() {
               </button>
             ))}
           </div>
-          <Canvas page={project.doc.pages[activePage]} pageIndex={activePage} onChange={updatePage} />
+          <Canvas page={project.doc.pages[activePage]} pageIndex={activePage} subject={project.doc.subject} onChange={updatePage} />
           <div className="mx-auto mt-6 flex max-w-[860px] items-center justify-between text-xs font-bold text-muted-foreground">
             <button disabled={activePage === 0} onClick={() => setActivePage((i) => i - 1)} className="rounded-xl border border-border bg-white px-3 py-1.5 text-ink disabled:opacity-40">← Previous</button>
             <div>Page {activePage + 1} of {totalPages} · autosaved</div>
