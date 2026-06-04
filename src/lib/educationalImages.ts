@@ -141,7 +141,7 @@ async function normalizeIfNotBlank(dataUrl: string, w: number, h: number): Promi
           resolve(null);
           return;
         }
-        resolve(canvas.toDataURL("image/png"));
+        resolve(canvas.toDataURL("image/jpeg", 0.88));
       } catch {
         resolve(null);
       }
