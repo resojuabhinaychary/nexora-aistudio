@@ -324,25 +324,31 @@ export async function exportDocToPDF(doc: GeneratedDoc): Promise<{ blob: Blob; f
     pdf.line(margin, y + 4, margin + 50, y + 4);
     y += 18;
 
-    // Illustration in a soft rounded card — always render so layout looks intentional
+    // Illustration — only render after verified image data exists.
     {
       const img = pageImgs[pIdx];
       const imgH = 180;
-      pdf.setFillColor(248, 250, 255);
-      pdf.setDrawColor(220, 228, 245);
-      pdf.roundedRect(margin, y, contentW, imgH + 12, 12, 12, "FD");
-      let drew = false;
       if (img) {
         try {
-          pdf.addImage(img, "JPEG", margin + 6, y + 6, contentW - 12, imgH, undefined, "FAST");
-          drew = true;
-        } catch {}
+          pdf.setFillColor(248, 250, 255);
+          pdf.setDrawColor(220, 228, 245);
+          pdf.roundedRect(margin, y, contentW, imgH + 12, 12, 12, "FD");
+          pdf.addImage(img, "PNG", margin + 6, y + 6, contentW - 12, imgH, undefined, "FAST");
+          y += imgH + 24;
+        } catch {
+          pdf.setFont("helvetica", "bold");
+          pdf.setFontSize(10);
+          pdf.setTextColor(120, 130, 160);
+          pdf.text(EDUCATIONAL_IMAGE_UNAVAILABLE, margin, y);
+          y += 18;
+        }
+      } else {
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(10);
+        pdf.setTextColor(120, 130, 160);
+        pdf.text(EDUCATIONAL_IMAGE_UNAVAILABLE, margin, y);
+        y += 18;
       }
-      if (!drew) {
-        const pal = BOX_PALETTE[pIdx % BOX_PALETTE.length];
-        drawIllustratedPlaceholder(margin + 6, y + 6, contentW - 12, imgH, page.title, pal);
-      }
-      y += imgH + 24;
     }
 
     // Sections — each one rendered as a colored bordered callout box
@@ -363,33 +369,7 @@ export async function exportDocToPDF(doc: GeneratedDoc): Promise<{ blob: Blob; f
       }
     });
 
-    // Fill remaining empty space at the bottom of the page with a relevant illustration
-    const remaining = pageH - 60 - y;
-    if (remaining > 160) {
-      const filler = fillerImgs[pIdx];
-      const imgH = Math.min(remaining - 24, 240);
-      const imgW = Math.min(contentW, imgH * 1.4);
-      const xOffset = margin + (contentW - imgW) / 2;
-      pdf.setFillColor(250, 251, 255);
-      pdf.setDrawColor(225, 232, 248);
-      pdf.roundedRect(xOffset - 6, y, imgW + 12, imgH + 28, 12, 12, "FD");
-      let drew = false;
-      if (filler) {
-        try {
-          pdf.addImage(filler, "JPEG", xOffset, y + 6, imgW, imgH, undefined, "FAST");
-          drew = true;
-        } catch {}
-      }
-      if (!drew) {
-        const pal = BOX_PALETTE[(pIdx + 1) % BOX_PALETTE.length];
-        drawIllustratedPlaceholder(xOffset, y + 6, imgW, imgH, page.imageQuery || page.title, pal);
-      }
-      pdf.setFont("helvetica", "italic");
-      pdf.setFontSize(9);
-      pdf.setTextColor(120, 130, 160);
-      const caption = page.imageQuery || page.title;
-      pdf.text(`Fig. ${pIdx + 1} — ${caption}`, xOffset + imgW / 2, y + imgH + 20, { align: "center" });
-    }
+    // Do not fill empty space with decorative or placeholder images.
     drawFooter(pIdx + 2);
   });
 
