@@ -4,13 +4,9 @@ import type { GeneratedDoc } from "./ai.functions";
 function imageUrl(query: string, w = 1024, h = 576) {
   const q = (query || "education illustration").trim();
   return `https://image.pollinations.ai/prompt/${encodeURIComponent(
-    q + ", clean educational illustration, flat vector, soft pastel colors, white background",
+    q +
+      ", labeled scientific educational diagram, textbook illustration, clearly labeled parts with arrows and captions, flat vector infographic, clean white background, NO photo, NO people, NO landscape, NO city, NO building, NO scenery",
   )}?width=${w}&height=${h}&nologo=true&model=flux`;
-}
-
-function unsplashUrl(query: string, w = 1024, h = 576) {
-  const q = (query || "education").trim().replace(/\s+/g, ",");
-  return `https://source.unsplash.com/${w}x${h}/?${encodeURIComponent(q)}`;
 }
 
 async function fetchOne(url: string, timeoutMs: number): Promise<string | null> {
@@ -34,20 +30,23 @@ async function fetchOne(url: string, timeoutMs: number): Promise<string | null> 
 }
 
 // Try multiple image sources so we (almost) always get a real photo/illustration.
-async function fetchImage(primaryUrl: string, query?: string, w = 1024, h = 576): Promise<string | null> {
-  const a = await fetchOne(primaryUrl, 25000);
+// Educational-only image fetch. We ONLY use AI-generated topic-specific
+// diagrams (pollinations/flux with a strict educational prompt). We do NOT
+// fall back to random stock photo sources (Unsplash, LoremFlickr, Picsum)
+// because those return city/beach/landscape photos that are irrelevant to
+// the topic. If the AI generation fails, the caller draws an illustrated
+// titled placeholder instead — which is still topic-relevant.
+async function fetchImage(
+  primaryUrl: string,
+  _query?: string,
+  _w = 1024,
+  _h = 576,
+): Promise<string | null> {
+  // Try the topic-specific educational diagram twice (transient failures).
+  const a = await fetchOne(primaryUrl, 30000);
   if (a) return a;
-  if (query) {
-    const b = await fetchOne(unsplashUrl(query, w, h), 15000);
-    if (b) return b;
-    const c = await fetchOne(`https://loremflickr.com/${w}/${h}/${encodeURIComponent(query)}`, 12000);
-    if (c) return c;
-  }
-  // Last-resort: picsum always returns a real photo (topic-agnostic but never fails),
-  // seeded by the query so the same section gets a stable image.
-  const seed = encodeURIComponent((query || "nexora").slice(0, 40));
-  const d = await fetchOne(`https://picsum.photos/seed/${seed}/${w}/${h}`, 12000);
-  if (d) return d;
+  const b = await fetchOne(primaryUrl + "&retry=1", 20000);
+  if (b) return b;
   return null;
 }
 
@@ -69,25 +68,32 @@ export async function exportDocToPDF(doc: GeneratedDoc): Promise<{ blob: Blob; f
   const contentW = pageW - margin * 2;
 
   // Pre-fetch all images in parallel: cover + per-page hero + per-page filler + per-section inline
-  const coverQ = doc.coverImageQuery || doc.title;
+  const subj = doc.subject || "";
+  const topicCtx = `${subj} ${doc.title}`.trim();
+  const coverQ = `${doc.coverImageQuery || doc.title} — ${topicCtx} labeled scientific diagram`;
   const sectionQueries: { pIdx: number; sIdx: number; query: string }[] = [];
   doc.pages.forEach((p, pIdx) => {
     p.sections.forEach((s, sIdx) => {
       if (s.paragraph && s.paragraph.length > 40) {
-        sectionQueries.push({ pIdx, sIdx, query: `${s.heading} ${p.title} educational diagram` });
+        sectionQueries.push({
+          pIdx,
+          sIdx,
+          query: `${s.heading} — ${p.title} (${subj}) labeled educational diagram, textbook illustration, parts labeled`,
+        });
       }
     });
   });
   const imagePromises = [
     fetchImage(imageUrl(coverQ, 1024, 768), coverQ, 1024, 768),
-    ...doc.pages.map((p) => fetchImage(imageUrl(p.imageQuery || p.title, 1024, 480), p.imageQuery || p.title, 1024, 480)),
+    ...doc.pages.map((p) => {
+      const q = `${p.imageQuery || p.title} — ${topicCtx} labeled educational diagram`;
+      return fetchImage(imageUrl(q, 1024, 480), q, 1024, 480);
+    }),
     ...doc.pages.map((p) =>
-      fetchImage(
-        imageUrl((p.imageQuery || p.title) + " concept illustration colorful", 800, 600),
-        (p.imageQuery || p.title) + " concept",
-        800,
-        600,
-      ),
+      {
+        const q = `${p.imageQuery || p.title} — ${topicCtx} concept infographic, labeled flowchart, textbook style`;
+        return fetchImage(imageUrl(q, 800, 600), q, 800, 600);
+      },
     ),
     ...sectionQueries.map((q) => fetchImage(imageUrl(q.query, 800, 500), q.query, 800, 500)),
   ];
