@@ -68,25 +68,32 @@ export async function exportDocToPDF(doc: GeneratedDoc): Promise<{ blob: Blob; f
   const contentW = pageW - margin * 2;
 
   // Pre-fetch all images in parallel: cover + per-page hero + per-page filler + per-section inline
-  const coverQ = doc.coverImageQuery || doc.title;
+  const subj = doc.subject || "";
+  const topicCtx = `${subj} ${doc.title}`.trim();
+  const coverQ = `${doc.coverImageQuery || doc.title} — ${topicCtx} labeled scientific diagram`;
   const sectionQueries: { pIdx: number; sIdx: number; query: string }[] = [];
   doc.pages.forEach((p, pIdx) => {
     p.sections.forEach((s, sIdx) => {
       if (s.paragraph && s.paragraph.length > 40) {
-        sectionQueries.push({ pIdx, sIdx, query: `${s.heading} ${p.title} educational diagram` });
+        sectionQueries.push({
+          pIdx,
+          sIdx,
+          query: `${s.heading} — ${p.title} (${subj}) labeled educational diagram, textbook illustration, parts labeled`,
+        });
       }
     });
   });
   const imagePromises = [
     fetchImage(imageUrl(coverQ, 1024, 768), coverQ, 1024, 768),
-    ...doc.pages.map((p) => fetchImage(imageUrl(p.imageQuery || p.title, 1024, 480), p.imageQuery || p.title, 1024, 480)),
+    ...doc.pages.map((p) => {
+      const q = `${p.imageQuery || p.title} — ${topicCtx} labeled educational diagram`;
+      return fetchImage(imageUrl(q, 1024, 480), q, 1024, 480);
+    }),
     ...doc.pages.map((p) =>
-      fetchImage(
-        imageUrl((p.imageQuery || p.title) + " concept illustration colorful", 800, 600),
-        (p.imageQuery || p.title) + " concept",
-        800,
-        600,
-      ),
+      {
+        const q = `${p.imageQuery || p.title} — ${topicCtx} concept infographic, labeled flowchart, textbook style`;
+        return fetchImage(imageUrl(q, 800, 600), q, 800, 600);
+      },
     ),
     ...sectionQueries.map((q) => fetchImage(imageUrl(q.query, 800, 500), q.query, 800, 500)),
   ];
