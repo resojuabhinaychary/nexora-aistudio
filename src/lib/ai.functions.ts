@@ -18,6 +18,12 @@ export type GeneratedPage = {
   subtitle?: string;
   sections: GeneratedSection[];
   imageQuery?: string;
+  educationalImage?: {
+    dataUrl: string;
+    key: string;
+    prompt?: string;
+  };
+  unavailableImageKey?: string;
 };
 
 export type GeneratedDoc = {
