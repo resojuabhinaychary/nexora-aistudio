@@ -1,6 +1,5 @@
 import jsPDF from "jspdf";
 import type { GeneratedDoc } from "./ai.functions";
-import { EDUCATIONAL_IMAGE_UNAVAILABLE } from "./educationalImages";
 
 // Soft pastel color palette for content boxes [bgR,bgG,bgB, borderR,borderG,borderB, textR,textG,textB]
 const BOX_PALETTE: Array<{ bg: [number, number, number]; border: [number, number, number]; accent: [number, number, number] }> = [
