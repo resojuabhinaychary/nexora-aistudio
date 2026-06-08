@@ -24,6 +24,7 @@ export type GeneratedPage = {
     prompt?: string;
   };
   unavailableImageKey?: string;
+  imageError?: string;
 };
 
 export type GeneratedDoc = {
@@ -166,4 +167,83 @@ export const explainConcept = createServerFn({ method: "POST" })
     }
     const json = await res.json();
     return { answer: (json.choices?.[0]?.message?.content as string) ?? "" };
+  });
+
+// ============================================================================
+// Gemini-powered educational image generation.
+// Uses GOOGLE_API_KEY (Google AI Studio) to call gemini image-generation models.
+// Retries up to 3 times. Returns either a base64 PNG data URL or a detailed
+// error string surfaced from the Gemini API so the UI can show the real cause.
+// ============================================================================
+
+const geminiImageInputSchema = z.object({
+  prompt: z.string().min(4).max(4000),
+});
+
+const GEMINI_IMAGE_MODELS = [
+  "gemini-2.5-flash-image-preview",
+  "gemini-2.5-flash-image",
+  "gemini-2.0-flash-preview-image-generation",
+];
+
+async function callGeminiImageOnce(prompt: string, key: string, model: string) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      generationConfig: { responseModalities: ["IMAGE", "TEXT"] },
+    }),
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    return { ok: false as const, error: `Gemini ${model} HTTP ${res.status}: ${text.slice(0, 600)}` };
+  }
+  let json: any;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    return { ok: false as const, error: `Gemini ${model} returned non-JSON: ${text.slice(0, 300)}` };
+  }
+  const parts = json?.candidates?.[0]?.content?.parts || [];
+  for (const p of parts) {
+    const inline = p?.inlineData || p?.inline_data;
+    if (inline?.data) {
+      const mime = inline.mimeType || inline.mime_type || "image/png";
+      return { ok: true as const, dataUrl: `data:${mime};base64,${inline.data}` };
+    }
+  }
+  const block = json?.promptFeedback?.blockReason || json?.candidates?.[0]?.finishReason;
+  return {
+    ok: false as const,
+    error: `Gemini ${model} returned no image${block ? ` (reason: ${block})` : ""}. Raw: ${JSON.stringify(json).slice(0, 400)}`,
+  };
+}
+
+export const generateEducationalImage = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) => geminiImageInputSchema.parse(input))
+  .handler(async ({ data }) => {
+    const key = process.env.GOOGLE_API_KEY;
+    if (!key) {
+      return {
+        ok: false as const,
+        error: "GOOGLE_API_KEY is not configured on the server.",
+      };
+    }
+    const errors: string[] = [];
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      const model = GEMINI_IMAGE_MODELS[Math.min(attempt - 1, GEMINI_IMAGE_MODELS.length - 1)];
+      try {
+        const result = await callGeminiImageOnce(data.prompt, key, model);
+        if (result.ok) return { ok: true as const, dataUrl: result.dataUrl };
+        errors.push(`Attempt ${attempt}: ${result.error}`);
+        console.error("[generateEducationalImage]", result.error);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        errors.push(`Attempt ${attempt} threw: ${msg}`);
+        console.error("[generateEducationalImage] threw", err);
+      }
+    }
+    return { ok: false as const, error: errors.join(" | ") };
   });
