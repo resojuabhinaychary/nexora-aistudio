@@ -1,5 +1,5 @@
 import type { GeneratedPage, GeneratedSection } from "@/lib/ai.functions";
-import { EDUCATIONAL_IMAGE_UNAVAILABLE, buildEducationalImageKey, fetchVerifiedEducationalImage } from "@/lib/educationalImages";
+import { buildEducationalImageKey, fetchVerifiedEducationalImage } from "@/lib/educationalImages";
 import { motion, AnimatePresence } from "framer-motion";
 import { useEffect, useMemo, useState } from "react";
 
