@@ -1,5 +1,5 @@
 import type { GeneratedPage, GeneratedSection } from "@/lib/ai.functions";
-import { EDUCATIONAL_IMAGE_UNAVAILABLE, buildEducationalImageKey, fetchVerifiedEducationalImage } from "@/lib/educationalImages";
+import { buildEducationalImageKey, fetchVerifiedEducationalImage } from "@/lib/educationalImages";
 import { motion, AnimatePresence } from "framer-motion";
 import { useEffect, useMemo, useState } from "react";
 
@@ -40,6 +40,7 @@ export function Canvas({
   onChange: (next: GeneratedPage) => void;
 }) {
   const [imageState, setImageState] = useState<"idle" | "loading" | "failed">("idle");
+  const [imageError, setImageError] = useState<string | null>(page.imageError ?? null);
   const imageContext = useMemo(
     () => ({
       subject,
@@ -57,12 +58,14 @@ export function Canvas({
     let cancelled = false;
     if (verifiedImage) {
       setImageState("idle");
+      setImageError(null);
       return () => {
         cancelled = true;
       };
     }
     if (imageUnavailable) {
       setImageState("failed");
+      setImageError(page.imageError ?? "Image generation failed.");
       return () => {
         cancelled = true;
       };
@@ -70,12 +73,24 @@ export function Canvas({
     setImageState("loading");
     fetchVerifiedEducationalImage(imageContext, 1024, 576).then((result) => {
       if (cancelled) return;
-      if (result) {
+      if (result.ok) {
         setImageState("idle");
-        onChange({ ...page, educationalImage: result, unavailableImageKey: undefined });
+        setImageError(null);
+        onChange({
+          ...page,
+          educationalImage: { dataUrl: result.dataUrl, key: result.key, prompt: result.prompt },
+          unavailableImageKey: undefined,
+          imageError: undefined,
+        });
       } else {
         setImageState("failed");
-        onChange({ ...page, educationalImage: undefined, unavailableImageKey: imageKey });
+        setImageError(result.error);
+        onChange({
+          ...page,
+          educationalImage: undefined,
+          unavailableImageKey: imageKey,
+          imageError: result.error,
+        });
       }
     });
     return () => {
@@ -130,9 +145,16 @@ export function Canvas({
             />
           )}
           {!verifiedImage && (
-            <p className="mt-3 text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
-              {imageState === "loading" ? "Preparing educational image…" : EDUCATIONAL_IMAGE_UNAVAILABLE}
-            </p>
+            <div className="mt-3 space-y-1">
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
+                {imageState === "loading" ? "Generating educational image with Gemini…" : "Image generation failed"}
+              </p>
+              {imageState === "failed" && imageError && (
+                <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-md bg-red-50 p-2 text-[11px] font-medium text-red-700">
+                  {imageError}
+                </pre>
+              )}
+            </div>
           )}
           <div className="mt-5 h-1 w-16 rounded-full gradient-aurora" />
 

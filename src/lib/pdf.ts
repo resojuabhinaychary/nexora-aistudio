@@ -1,6 +1,5 @@
 import jsPDF from "jspdf";
 import type { GeneratedDoc } from "./ai.functions";
-import { EDUCATIONAL_IMAGE_UNAVAILABLE } from "./educationalImages";
 
 // Soft pastel color palette for content boxes [bgR,bgG,bgB, borderR,borderG,borderB, textR,textG,textB]
 const BOX_PALETTE: Array<{ bg: [number, number, number]; border: [number, number, number]; accent: [number, number, number] }> = [
@@ -24,6 +23,15 @@ export async function exportDocToPDF(doc: GeneratedDoc): Promise<{ blob: Blob; f
   const pageImgs = doc.pages.map((p) => p.educationalImage?.dataUrl || null);
   const coverImg = pageImgs.find(Boolean) || null;
   const sectionImgMap = new Map<string, string>();
+
+  const drawImageError = (y: number, msg: string): number => {
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(10);
+    pdf.setTextColor(180, 50, 60);
+    const lines = pdf.splitTextToSize(`Image generation error: ${msg}`, contentW);
+    pdf.text(lines, margin, y + 8);
+    return y + lines.length * 12 + 8;
+  };
 
   const drawHeader = (subject: string) => {
     pdf.setFillColor(245, 248, 255);
@@ -182,10 +190,8 @@ export async function exportDocToPDF(doc: GeneratedDoc): Promise<{ blob: Blob; f
     } catch {}
   }
   if (!coverDrawn) {
-    pdf.setFont("helvetica", "bold");
-    pdf.setFontSize(11);
-    pdf.setTextColor(120, 130, 160);
-    pdf.text(EDUCATIONAL_IMAGE_UNAVAILABLE, margin, 100);
+    const firstErr = doc.pages.find((p) => p.imageError)?.imageError;
+    if (firstErr) drawImageError(80, firstErr);
   }
   pdf.setTextColor(20, 25, 50);
   pdf.setFont("helvetica", "bold");
@@ -250,18 +256,10 @@ export async function exportDocToPDF(doc: GeneratedDoc): Promise<{ blob: Blob; f
           pdf.addImage(img, "PNG", margin + 6, y + 6, contentW - 12, imgH, undefined, "FAST");
           y += imgH + 24;
         } catch {
-          pdf.setFont("helvetica", "bold");
-          pdf.setFontSize(10);
-          pdf.setTextColor(120, 130, 160);
-          pdf.text(EDUCATIONAL_IMAGE_UNAVAILABLE, margin, y);
-          y += 18;
+          y = drawImageError(y, page.imageError || "Could not embed image into PDF.");
         }
       } else {
-        pdf.setFont("helvetica", "bold");
-        pdf.setFontSize(10);
-        pdf.setTextColor(120, 130, 160);
-        pdf.text(EDUCATIONAL_IMAGE_UNAVAILABLE, margin, y);
-        y += 18;
+        y = drawImageError(y, page.imageError || "No image returned by Gemini for this topic.");
       }
     }
 
