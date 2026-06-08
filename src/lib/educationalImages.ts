@@ -1,4 +1,5 @@
 import type { GeneratedDoc } from "./ai.functions";
+import { generateEducationalImage } from "./ai.functions";
 
 export type EducationalImageContext = {
   subject?: string;
@@ -67,31 +68,6 @@ export function buildEducationalImageKey(context: EducationalImageContext, w = 1
   return `${buildEducationalImagePrompt(context)}|${w}x${h}`;
 }
 
-function pollinationsUrl(prompt: string, w: number, h: number, attempt: number, key: string) {
-  const seed = hashString(`${key}:${attempt}`);
-  return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=${w}&height=${h}&nologo=true&model=flux&seed=${seed}&enhance=true`;
-}
-
-async function fetchDataUrl(url: string, timeoutMs: number): Promise<string | null> {
-  try {
-    const ctrl = new AbortController();
-    const timeout = window.setTimeout(() => ctrl.abort(), timeoutMs);
-    const res = await fetch(url, { signal: ctrl.signal, cache: "no-store" });
-    window.clearTimeout(timeout);
-    if (!res.ok) return null;
-    const blob = await res.blob();
-    if (!blob || blob.size < 2500 || !blob.type.startsWith("image/")) return null;
-    return await new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(typeof reader.result === "string" ? reader.result : null);
-      reader.onerror = () => resolve(null);
-      reader.readAsDataURL(blob);
-    });
-  } catch {
-    return null;
-  }
-}
-
 async function normalizeIfNotBlank(dataUrl: string, w: number, h: number): Promise<string | null> {
   if (typeof document === "undefined" || typeof Image === "undefined") return null;
   return await new Promise((resolve) => {
@@ -151,20 +127,30 @@ async function normalizeIfNotBlank(dataUrl: string, w: number, h: number): Promi
   });
 }
 
+export type EducationalImageResult =
+  | { ok: true; dataUrl: string; key: string; prompt: string }
+  | { ok: false; error: string; key: string; prompt: string };
+
 export async function fetchVerifiedEducationalImage(
   context: EducationalImageContext,
   w = 1024,
   h = 576,
-): Promise<{ dataUrl: string; key: string; prompt: string } | null> {
+): Promise<EducationalImageResult> {
   const prompt = buildEducationalImagePrompt(context);
   const key = buildEducationalImageKey(context, w, h);
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    const dataUrl = await fetchDataUrl(pollinationsUrl(prompt, w, h, attempt, key), attempt === 1 ? 30000 : 22000);
-    if (!dataUrl) continue;
-    const verified = await normalizeIfNotBlank(dataUrl, w, h);
-    if (verified) return { dataUrl: verified, key, prompt };
+  try {
+    const result = await generateEducationalImage({ data: { prompt } });
+    if (!result.ok) {
+      console.error("[educationalImages] Gemini failed:", result.error);
+      return { ok: false, error: result.error, key, prompt };
+    }
+    const verified = (await normalizeIfNotBlank(result.dataUrl, w, h)) || result.dataUrl;
+    return { ok: true, dataUrl: verified, key, prompt };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[educationalImages] threw:", msg);
+    return { ok: false, error: msg, key, prompt };
   }
-  return null;
 }
 
 export async function ensureDocEducationalImages(doc: GeneratedDoc): Promise<GeneratedDoc> {
@@ -177,10 +163,22 @@ export async function ensureDocEducationalImages(doc: GeneratedDoc): Promise<Gen
         keywords: page.sections.map((s) => s.heading).join(", "),
       };
       const key = buildEducationalImageKey(context, 1024, 576);
-      if (page.educationalImage?.key === key || page.unavailableImageKey === key) return page;
+      if (page.educationalImage?.key === key) return page;
       const result = await fetchVerifiedEducationalImage(context, 1024, 576);
-      if (result) return { ...page, educationalImage: result, unavailableImageKey: undefined };
-      return { ...page, educationalImage: undefined, unavailableImageKey: key };
+      if (result.ok) {
+        return {
+          ...page,
+          educationalImage: { dataUrl: result.dataUrl, key: result.key, prompt: result.prompt },
+          unavailableImageKey: undefined,
+          imageError: undefined,
+        };
+      }
+      return {
+        ...page,
+        educationalImage: undefined,
+        unavailableImageKey: key,
+        imageError: result.error,
+      };
     }),
   );
   return { ...doc, pages };
