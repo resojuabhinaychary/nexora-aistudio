@@ -37,6 +37,14 @@ export type GeneratedDoc = {
   coverImageQuery?: string;
 };
 
+type ChatUserContent =
+  | string
+  | Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }>;
+
+type ChatCompletionResponse = {
+  choices?: Array<{ message?: { content?: string } }>;
+};
+
 const systemPrompt = `You are Nexora AI, a master educator and exam coach. Produce DEEP, COMPREHENSIVE, textbook-quality study material that goes far beyond surface-level summaries — include definitions, derivations, mechanisms, formulas, worked examples, real-world applications, common misconceptions, and exam tips. Write in clear simple language a student can understand, but never skimp on depth. Output ONLY valid JSON matching the requested schema. No prose, no markdown.`;
 
 function buildUserPrompt(topic: string, format: string) {
@@ -72,7 +80,7 @@ export const generateContent = createServerFn({ method: "POST" })
     const apiKey = process.env.LOVABLE_API_KEY;
     if (!apiKey) throw new Error("LOVABLE_API_KEY not configured");
 
-    const userContent: any = data.imageBase64
+    const userContent: ChatUserContent = data.imageBase64
       ? [
           { type: "text", text: buildUserPrompt(data.topic, data.format) },
           { type: "image_url", image_url: { url: data.imageBase64 } },
@@ -97,13 +105,14 @@ export const generateContent = createServerFn({ method: "POST" })
 
     if (!res.ok) {
       if (res.status === 429) throw new Error("Rate limit reached. Please try again in a moment.");
-      if (res.status === 402) throw new Error("AI credits exhausted. Add credits in Workspace Settings.");
+      if (res.status === 402)
+        throw new Error("AI credits exhausted. Add credits in Workspace Settings.");
       const t = await res.text();
       console.error("AI gateway error", res.status, t);
       throw new Error("AI generation failed");
     }
 
-    const json = await res.json();
+    const json = (await res.json()) as ChatCompletionResponse;
     const content = json.choices?.[0]?.message?.content as string | undefined;
     if (!content) throw new Error("Empty AI response");
 
@@ -133,7 +142,7 @@ export const explainConcept = createServerFn({ method: "POST" })
     const apiKey = process.env.LOVABLE_API_KEY;
     if (!apiKey) throw new Error("LOVABLE_API_KEY not configured");
 
-    const userContent: any = data.imageBase64
+    const userContent: ChatUserContent = data.imageBase64
       ? [
           {
             type: "text",
@@ -162,10 +171,11 @@ export const explainConcept = createServerFn({ method: "POST" })
     });
     if (!res.ok) {
       if (res.status === 429) throw new Error("Rate limit reached. Please try again in a moment.");
-      if (res.status === 402) throw new Error("AI credits exhausted. Add credits in Workspace Settings.");
+      if (res.status === 402)
+        throw new Error("AI credits exhausted. Add credits in Workspace Settings.");
       throw new Error("AI request failed");
     }
-    const json = await res.json();
+    const json = (await res.json()) as ChatCompletionResponse;
     return { answer: (json.choices?.[0]?.message?.content as string) ?? "" };
   });
 
