@@ -55,11 +55,9 @@ export function Canvas({
     }),
     [page.imageQuery, page.sections, page.subtitle, page.title, subject],
   );
-  const imageKey = useMemo(
-    () => buildEducationalImageKey(imageContext, 1024, 576),
-    [imageContext],
-  );
-  const verifiedImage = page.educationalImage?.key === imageKey ? page.educationalImage.dataUrl : null;
+  const imageKey = useMemo(() => buildEducationalImageKey(imageContext, 1024, 576), [imageContext]);
+  const verifiedImage =
+    page.educationalImage?.key === imageKey ? page.educationalImage.dataUrl : null;
   const imageUnavailable = page.unavailableImageKey === imageKey;
 
   useEffect(() => {
