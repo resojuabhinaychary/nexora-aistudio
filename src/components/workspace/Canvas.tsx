@@ -1,6 +1,7 @@
 import type { GeneratedPage, GeneratedSection } from "@/lib/ai.functions";
 import { buildEducationalImageKey, fetchVerifiedEducationalImage } from "@/lib/educationalImages";
 import { motion, AnimatePresence } from "framer-motion";
+import type { ElementType, FocusEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
 
 function EditableText({
@@ -12,16 +13,20 @@ function EditableText({
 }: {
   value: string;
   onChange: (v: string) => void;
-  as?: any;
+  as?: ElementType;
   className?: string;
   multiline?: boolean;
 }) {
+  const handleBlur = (e: FocusEvent<HTMLElement>) => {
+    onChange(multiline ? e.currentTarget.innerText : (e.currentTarget.textContent ?? ""));
+  };
+
   return (
     <As
       className={`outline-none rounded-md transition focus:bg-primary/5 focus:ring-1 focus:ring-primary/40 ${className ?? ""}`}
       contentEditable
       suppressContentEditableWarning
-      onBlur={(e: any) => onChange(multiline ? e.currentTarget.innerText : e.currentTarget.textContent ?? "")}
+      onBlur={handleBlur}
     >
       {value}
     </As>
@@ -147,7 +152,9 @@ export function Canvas({
           {!verifiedImage && (
             <div className="mt-3 space-y-1">
               <p className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
-                {imageState === "loading" ? "Generating educational image…" : "Image generation is queued for retry"}
+                {imageState === "loading"
+                  ? "Generating educational image…"
+                  : "Image generation is queued for retry"}
               </p>
               {imageState === "failed" && imageError && (
                 <details className="rounded-md bg-secondary px-3 py-2 text-[11px] font-semibold text-muted-foreground">
