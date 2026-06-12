@@ -259,7 +259,7 @@ export async function exportDocToPDF(doc: GeneratedDoc): Promise<{ blob: Blob; f
           y = drawImageError(y, page.imageError || "Could not embed image into PDF.");
         }
       } else {
-        y = drawImageError(y, page.imageError || "No image returned by Gemini for this topic.");
+        y = drawImageError(y, page.imageError || "No image returned by the built-in image model for this topic.");
       }
     }
 
