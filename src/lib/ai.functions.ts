@@ -239,7 +239,7 @@ async function callLovableImageOnce(prompt: string, key: string, model: (typeof 
   try {
     json = JSON.parse(text);
   } catch {
-    return { ok: false as const, error: `Lovable AI ${model} returned non-JSON: ${text.slice(0, 300)}` };
+    return { ok: false as const, retryable: false, error: `Lovable AI ${model} returned non-JSON: ${text.slice(0, 300)}` };
   }
   const b64 = json?.data?.[0]?.b64_json;
   if (b64) {
@@ -247,6 +247,7 @@ async function callLovableImageOnce(prompt: string, key: string, model: (typeof 
   }
   return {
     ok: false as const,
+    retryable: false,
     error: `Lovable AI ${model} returned no image. Raw: ${JSON.stringify(json).slice(0, 400)}`,
   };
 }
@@ -269,10 +270,13 @@ export const generateEducationalImage = createServerFn({ method: "POST" })
         if (result.ok) return { ok: true as const, dataUrl: result.dataUrl };
         errors.push(`Attempt ${attempt}: ${result.error}`);
         console.error("[generateEducationalImage]", result.error);
+        if (!result.retryable) break;
+        if (attempt < 3) await sleep(attempt * 4500);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         errors.push(`Attempt ${attempt} threw: ${msg}`);
         console.error("[generateEducationalImage] threw", err);
+        if (attempt < 3) await sleep(attempt * 4500);
       }
     }
     return { ok: false as const, error: errors.join(" | ") };
