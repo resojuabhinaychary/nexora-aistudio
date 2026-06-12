@@ -197,13 +197,21 @@ const LOVABLE_IMAGE_MODELS = [
   "google/gemini-3.1-flash-image-preview",
 ] as const;
 
+type ImageGenerationResponse = {
+  data?: Array<{ b64_json?: string }>;
+};
+
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function parseGatewayError(status: number, text: string) {
   try {
-    const json = JSON.parse(text);
+    const json = JSON.parse(text) as {
+      error?: { message?: string; code?: string };
+      message?: string;
+      type?: string;
+    };
     const message = json?.error?.message || json?.message || text;
     const code = json?.error?.code || json?.type || "gateway_error";
     return { message: `${code}: ${message}`, retryable: status === 429 || status >= 500 };
@@ -212,7 +220,11 @@ function parseGatewayError(status: number, text: string) {
   }
 }
 
-async function callLovableImageOnce(prompt: string, key: string, model: (typeof LOVABLE_IMAGE_MODELS)[number]) {
+async function callLovableImageOnce(
+  prompt: string,
+  key: string,
+  model: (typeof LOVABLE_IMAGE_MODELS)[number],
+) {
   const isGemini = model.startsWith("google/");
   const res = await fetch("https://ai.gateway.lovable.dev/v1/images/generations", {
     method: "POST",
@@ -245,11 +257,15 @@ async function callLovableImageOnce(prompt: string, key: string, model: (typeof 
       error: `Lovable AI ${model} HTTP ${res.status}: ${parsed.message.slice(0, 600)}`,
     };
   }
-  let json: any;
+  let json: ImageGenerationResponse;
   try {
-    json = JSON.parse(text);
+    json = JSON.parse(text) as ImageGenerationResponse;
   } catch {
-    return { ok: false as const, retryable: false, error: `Lovable AI ${model} returned non-JSON: ${text.slice(0, 300)}` };
+    return {
+      ok: false as const,
+      retryable: false,
+      error: `Lovable AI ${model} returned non-JSON: ${text.slice(0, 300)}`,
+    };
   }
   const b64 = json?.data?.[0]?.b64_json;
   if (b64) {
