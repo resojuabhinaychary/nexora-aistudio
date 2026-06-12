@@ -37,6 +37,14 @@ export type GeneratedDoc = {
   coverImageQuery?: string;
 };
 
+type ChatUserContent =
+  | string
+  | Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }>;
+
+type ChatCompletionResponse = {
+  choices?: Array<{ message?: { content?: string } }>;
+};
+
 const systemPrompt = `You are Nexora AI, a master educator and exam coach. Produce DEEP, COMPREHENSIVE, textbook-quality study material that goes far beyond surface-level summaries — include definitions, derivations, mechanisms, formulas, worked examples, real-world applications, common misconceptions, and exam tips. Write in clear simple language a student can understand, but never skimp on depth. Output ONLY valid JSON matching the requested schema. No prose, no markdown.`;
 
 function buildUserPrompt(topic: string, format: string) {
@@ -72,7 +80,7 @@ export const generateContent = createServerFn({ method: "POST" })
     const apiKey = process.env.LOVABLE_API_KEY;
     if (!apiKey) throw new Error("LOVABLE_API_KEY not configured");
 
-    const userContent: any = data.imageBase64
+    const userContent: ChatUserContent = data.imageBase64
       ? [
           { type: "text", text: buildUserPrompt(data.topic, data.format) },
           { type: "image_url", image_url: { url: data.imageBase64 } },
@@ -97,13 +105,14 @@ export const generateContent = createServerFn({ method: "POST" })
 
     if (!res.ok) {
       if (res.status === 429) throw new Error("Rate limit reached. Please try again in a moment.");
-      if (res.status === 402) throw new Error("AI credits exhausted. Add credits in Workspace Settings.");
+      if (res.status === 402)
+        throw new Error("AI credits exhausted. Add credits in Workspace Settings.");
       const t = await res.text();
       console.error("AI gateway error", res.status, t);
       throw new Error("AI generation failed");
     }
 
-    const json = await res.json();
+    const json = (await res.json()) as ChatCompletionResponse;
     const content = json.choices?.[0]?.message?.content as string | undefined;
     if (!content) throw new Error("Empty AI response");
 
@@ -133,7 +142,7 @@ export const explainConcept = createServerFn({ method: "POST" })
     const apiKey = process.env.LOVABLE_API_KEY;
     if (!apiKey) throw new Error("LOVABLE_API_KEY not configured");
 
-    const userContent: any = data.imageBase64
+    const userContent: ChatUserContent = data.imageBase64
       ? [
           {
             type: "text",
@@ -162,17 +171,18 @@ export const explainConcept = createServerFn({ method: "POST" })
     });
     if (!res.ok) {
       if (res.status === 429) throw new Error("Rate limit reached. Please try again in a moment.");
-      if (res.status === 402) throw new Error("AI credits exhausted. Add credits in Workspace Settings.");
+      if (res.status === 402)
+        throw new Error("AI credits exhausted. Add credits in Workspace Settings.");
       throw new Error("AI request failed");
     }
-    const json = await res.json();
+    const json = (await res.json()) as ChatCompletionResponse;
     return { answer: (json.choices?.[0]?.message?.content as string) ?? "" };
   });
 
 // ============================================================================
 // Educational image generation via the built-in Lovable AI Gateway.
 // Uses LOVABLE_API_KEY (auto-provisioned, no user-supplied key needed) to call
-// Gemini image models through https://ai.gateway.lovable.dev/v1/images/generations.
+// built-in image models through https://ai.gateway.lovable.dev/v1/images/generations.
 // Retries up to 3 times. Returns either a base64 PNG data URL or a detailed
 // error string so the UI can show the real cause.
 // ============================================================================
@@ -182,33 +192,80 @@ const geminiImageInputSchema = z.object({
 });
 
 const LOVABLE_IMAGE_MODELS = [
-  "google/gemini-2.5-flash-image",
+  "openai/gpt-image-2",
+  "openai/gpt-image-1-mini",
   "google/gemini-3.1-flash-image-preview",
-  "google/gemini-3-pro-image-preview",
-];
+] as const;
 
-async function callLovableImageOnce(prompt: string, key: string, model: string) {
+type ImageGenerationResponse = {
+  data?: Array<{ b64_json?: string }>;
+};
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function parseGatewayError(status: number, text: string) {
+  try {
+    const json = JSON.parse(text) as {
+      error?: { message?: string; code?: string };
+      message?: string;
+      type?: string;
+    };
+    const message = json?.error?.message || json?.message || text;
+    const code = json?.error?.code || json?.type || "gateway_error";
+    return { message: `${code}: ${message}`, retryable: status === 429 || status >= 500 };
+  } catch {
+    return { message: text || `HTTP ${status}`, retryable: status === 429 || status >= 500 };
+  }
+}
+
+async function callLovableImageOnce(
+  prompt: string,
+  key: string,
+  model: (typeof LOVABLE_IMAGE_MODELS)[number],
+) {
+  const isGemini = model.startsWith("google/");
   const res = await fetch("https://ai.gateway.lovable.dev/v1/images/generations", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${key}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: "user", content: prompt }],
-      modalities: ["image", "text"],
-    }),
+    body: JSON.stringify(
+      isGemini
+        ? {
+            model,
+            messages: [{ role: "user", content: prompt }],
+            modalities: ["image", "text"],
+          }
+        : {
+            model,
+            prompt,
+            size: "1024x1024",
+            quality: "low",
+            n: 1,
+          },
+    ),
   });
   const text = await res.text();
   if (!res.ok) {
-    return { ok: false as const, error: `Lovable AI ${model} HTTP ${res.status}: ${text.slice(0, 600)}` };
+    const parsed = parseGatewayError(res.status, text);
+    return {
+      ok: false as const,
+      retryable: parsed.retryable,
+      error: `Lovable AI ${model} HTTP ${res.status}: ${parsed.message.slice(0, 600)}`,
+    };
   }
-  let json: any;
+  let json: ImageGenerationResponse;
   try {
-    json = JSON.parse(text);
+    json = JSON.parse(text) as ImageGenerationResponse;
   } catch {
-    return { ok: false as const, error: `Lovable AI ${model} returned non-JSON: ${text.slice(0, 300)}` };
+    return {
+      ok: false as const,
+      retryable: false,
+      error: `Lovable AI ${model} returned non-JSON: ${text.slice(0, 300)}`,
+    };
   }
   const b64 = json?.data?.[0]?.b64_json;
   if (b64) {
@@ -216,6 +273,7 @@ async function callLovableImageOnce(prompt: string, key: string, model: string) 
   }
   return {
     ok: false as const,
+    retryable: false,
     error: `Lovable AI ${model} returned no image. Raw: ${JSON.stringify(json).slice(0, 400)}`,
   };
 }
@@ -238,10 +296,13 @@ export const generateEducationalImage = createServerFn({ method: "POST" })
         if (result.ok) return { ok: true as const, dataUrl: result.dataUrl };
         errors.push(`Attempt ${attempt}: ${result.error}`);
         console.error("[generateEducationalImage]", result.error);
+        if (!result.retryable) break;
+        if (attempt < 3) await sleep(attempt * 4500);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         errors.push(`Attempt ${attempt} threw: ${msg}`);
         console.error("[generateEducationalImage] threw", err);
+        if (attempt < 3) await sleep(attempt * 4500);
       }
     }
     return { ok: false as const, error: errors.join(" | ") };

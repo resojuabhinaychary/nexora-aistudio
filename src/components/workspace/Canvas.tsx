@@ -1,6 +1,7 @@
 import type { GeneratedPage, GeneratedSection } from "@/lib/ai.functions";
 import { buildEducationalImageKey, fetchVerifiedEducationalImage } from "@/lib/educationalImages";
 import { motion, AnimatePresence } from "framer-motion";
+import type { ElementType, FocusEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
 
 function EditableText({
@@ -12,16 +13,20 @@ function EditableText({
 }: {
   value: string;
   onChange: (v: string) => void;
-  as?: any;
+  as?: ElementType;
   className?: string;
   multiline?: boolean;
 }) {
+  const handleBlur = (e: FocusEvent<HTMLElement>) => {
+    onChange(multiline ? e.currentTarget.innerText : (e.currentTarget.textContent ?? ""));
+  };
+
   return (
     <As
       className={`outline-none rounded-md transition focus:bg-primary/5 focus:ring-1 focus:ring-primary/40 ${className ?? ""}`}
       contentEditable
       suppressContentEditableWarning
-      onBlur={(e: any) => onChange(multiline ? e.currentTarget.innerText : e.currentTarget.textContent ?? "")}
+      onBlur={handleBlur}
     >
       {value}
     </As>
@@ -51,7 +56,8 @@ export function Canvas({
     [page.imageQuery, page.sections, page.subtitle, page.title, subject],
   );
   const imageKey = useMemo(() => buildEducationalImageKey(imageContext, 1024, 576), [imageContext]);
-  const verifiedImage = page.educationalImage?.key === imageKey ? page.educationalImage.dataUrl : null;
+  const verifiedImage =
+    page.educationalImage?.key === imageKey ? page.educationalImage.dataUrl : null;
   const imageUnavailable = page.unavailableImageKey === imageKey;
 
   useEffect(() => {
@@ -147,12 +153,17 @@ export function Canvas({
           {!verifiedImage && (
             <div className="mt-3 space-y-1">
               <p className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
-                {imageState === "loading" ? "Generating educational image with Gemini…" : "Image generation failed"}
+                {imageState === "loading"
+                  ? "Generating educational image…"
+                  : "Image generation is queued for retry"}
               </p>
               {imageState === "failed" && imageError && (
-                <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-md bg-red-50 p-2 text-[11px] font-medium text-red-700">
-                  {imageError}
-                </pre>
+                <details className="rounded-md bg-secondary px-3 py-2 text-[11px] font-semibold text-muted-foreground">
+                  <summary className="cursor-pointer text-ink">Technical details</summary>
+                  <pre className="mt-2 max-h-28 overflow-auto whitespace-pre-wrap break-words text-[10px] font-medium text-muted-foreground">
+                    {imageError}
+                  </pre>
+                </details>
               )}
             </div>
           )}

@@ -2,13 +2,17 @@ import jsPDF from "jspdf";
 import type { GeneratedDoc } from "./ai.functions";
 
 // Soft pastel color palette for content boxes [bgR,bgG,bgB, borderR,borderG,borderB, textR,textG,textB]
-const BOX_PALETTE: Array<{ bg: [number, number, number]; border: [number, number, number]; accent: [number, number, number] }> = [
-  { bg: [235, 244, 255], border: [180, 206, 245], accent: [60, 110, 220] },   // sky
-  { bg: [240, 235, 255], border: [200, 188, 240], accent: [110, 80, 210] },   // lavender
-  { bg: [233, 248, 240], border: [176, 220, 196], accent: [40, 145, 110] },   // mint
-  { bg: [255, 243, 232], border: [245, 210, 175], accent: [200, 120, 40] },   // peach
-  { bg: [255, 235, 240], border: [245, 195, 210], accent: [210, 70, 120] },   // rose
-  { bg: [240, 240, 245], border: [205, 205, 215], accent: [80, 90, 120] },    // slate
+const BOX_PALETTE: Array<{
+  bg: [number, number, number];
+  border: [number, number, number];
+  accent: [number, number, number];
+}> = [
+  { bg: [235, 244, 255], border: [180, 206, 245], accent: [60, 110, 220] }, // sky
+  { bg: [240, 235, 255], border: [200, 188, 240], accent: [110, 80, 210] }, // lavender
+  { bg: [233, 248, 240], border: [176, 220, 196], accent: [40, 145, 110] }, // mint
+  { bg: [255, 243, 232], border: [245, 210, 175], accent: [200, 120, 40] }, // peach
+  { bg: [255, 235, 240], border: [245, 195, 210], accent: [210, 70, 120] }, // rose
+  { bg: [240, 240, 245], border: [205, 205, 215], accent: [80, 90, 120] }, // slate
 ];
 
 export async function exportDocToPDF(doc: GeneratedDoc): Promise<{ blob: Blob; filename: string }> {
@@ -187,7 +191,9 @@ export async function exportDocToPDF(doc: GeneratedDoc): Promise<{ blob: Blob; f
       pdf.roundedRect(margin - 6, 54, contentW + 12, 220, 14, 14, "FD");
       pdf.addImage(coverImg, "PNG", margin, 60, contentW, 208, undefined, "FAST");
       coverDrawn = true;
-    } catch {}
+    } catch {
+      coverDrawn = false;
+    }
   }
   if (!coverDrawn) {
     const firstErr = doc.pages.find((p) => p.imageError)?.imageError;
@@ -259,7 +265,10 @@ export async function exportDocToPDF(doc: GeneratedDoc): Promise<{ blob: Blob; f
           y = drawImageError(y, page.imageError || "Could not embed image into PDF.");
         }
       } else {
-        y = drawImageError(y, page.imageError || "No image returned by Gemini for this topic.");
+        y = drawImageError(
+          y,
+          page.imageError || "No image returned by the built-in image model for this topic.",
+        );
       }
     }
 

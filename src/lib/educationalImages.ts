@@ -9,6 +9,24 @@ export type EducationalImageContext = {
 };
 
 const UNAVAILABLE = "Educational image unavailable for this topic";
+let imageQueue = Promise.resolve();
+
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function runImageJob<T>(job: () => Promise<T>): Promise<T> {
+  const run = imageQueue.then(async () => {
+    const result = await job();
+    await wait(1800);
+    return result;
+  });
+  imageQueue = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
 
 function clean(input?: string) {
   return (input || "").replace(/\s+/g, " ").trim();
@@ -28,7 +46,11 @@ function subjectSpecificRequirements(text: string) {
   if (/ideal|government|democracy|constitution|civics|rights|duties|election|governance/.test(t)) {
     return "democracy infographic, government structure chart, constitution illustration, citizen rights and duties infographic, election or governance flowchart where relevant";
   }
-  if (/biology|cell|mitochondria|photosynthesis|respiration|krebs|dna|enzyme|plant|animal|pyruvate/.test(t)) {
+  if (
+    /biology|cell|mitochondria|photosynthesis|respiration|krebs|dna|enzyme|plant|animal|pyruvate/.test(
+      t,
+    )
+  ) {
     return "labeled biology diagram with structures, arrows, pathways, molecules, organelles, inputs and outputs where relevant";
   }
   if (/physics|force|motion|electric|magnet|light|wave|energy|newton|circuit/.test(t)) {
@@ -44,7 +66,9 @@ function subjectSpecificRequirements(text: string) {
 }
 
 export function buildEducationalImagePrompt(context: EducationalImageContext) {
-  const keywords = Array.isArray(context.keywords) ? context.keywords.join(", ") : clean(context.keywords);
+  const keywords = Array.isArray(context.keywords)
+    ? context.keywords.join(", ")
+    : clean(context.keywords);
   const subject = clean(context.subject) || "General education";
   const chapter = clean(context.chapter);
   const topic = clean(context.topic) || "educational topic";
@@ -139,9 +163,9 @@ export async function fetchVerifiedEducationalImage(
   const prompt = buildEducationalImagePrompt(context);
   const key = buildEducationalImageKey(context, w, h);
   try {
-    const result = await generateEducationalImage({ data: { prompt } });
+    const result = await runImageJob(() => generateEducationalImage({ data: { prompt } }));
     if (!result.ok) {
-      console.error("[educationalImages] Gemini failed:", result.error);
+      console.error("[educationalImages] image generation failed:", result.error);
       return { ok: false, error: result.error, key, prompt };
     }
     const verified = (await normalizeIfNotBlank(result.dataUrl, w, h)) || result.dataUrl;
@@ -154,33 +178,36 @@ export async function fetchVerifiedEducationalImage(
 }
 
 export async function ensureDocEducationalImages(doc: GeneratedDoc): Promise<GeneratedDoc> {
-  const pages = await Promise.all(
-    doc.pages.map(async (page) => {
-      const context = {
-        subject: doc.subject,
-        chapter: page.title,
-        topic: page.imageQuery || page.title,
-        keywords: page.sections.map((s) => s.heading).join(", "),
-      };
-      const key = buildEducationalImageKey(context, 1024, 576);
-      if (page.educationalImage?.key === key) return page;
-      const result = await fetchVerifiedEducationalImage(context, 1024, 576);
-      if (result.ok) {
-        return {
-          ...page,
-          educationalImage: { dataUrl: result.dataUrl, key: result.key, prompt: result.prompt },
-          unavailableImageKey: undefined,
-          imageError: undefined,
-        };
-      }
-      return {
+  const pages: GeneratedDoc["pages"] = [];
+  for (const page of doc.pages) {
+    const context = {
+      subject: doc.subject,
+      chapter: page.title,
+      topic: page.imageQuery || page.title,
+      keywords: page.sections.map((s) => s.heading).join(", "),
+    };
+    const key = buildEducationalImageKey(context, 1024, 576);
+    if (page.educationalImage?.key === key) {
+      pages.push(page);
+      continue;
+    }
+    const result = await fetchVerifiedEducationalImage(context, 1024, 576);
+    if (result.ok) {
+      pages.push({
         ...page,
-        educationalImage: undefined,
-        unavailableImageKey: key,
-        imageError: result.error,
-      };
-    }),
-  );
+        educationalImage: { dataUrl: result.dataUrl, key: result.key, prompt: result.prompt },
+        unavailableImageKey: undefined,
+        imageError: undefined,
+      });
+      continue;
+    }
+    pages.push({
+      ...page,
+      educationalImage: undefined,
+      unavailableImageKey: key,
+      imageError: result.error,
+    });
+  }
   return { ...doc, pages };
 }
 
