@@ -172,7 +172,7 @@ export const explainConcept = createServerFn({ method: "POST" })
 // ============================================================================
 // Educational image generation via the built-in Lovable AI Gateway.
 // Uses LOVABLE_API_KEY (auto-provisioned, no user-supplied key needed) to call
-// Gemini image models through https://ai.gateway.lovable.dev/v1/images/generations.
+// built-in image models through https://ai.gateway.lovable.dev/v1/images/generations.
 // Retries up to 3 times. Returns either a base64 PNG data URL or a detailed
 // error string so the UI can show the real cause.
 // ============================================================================
