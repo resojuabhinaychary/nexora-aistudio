@@ -9,6 +9,21 @@ export type EducationalImageContext = {
 };
 
 const UNAVAILABLE = "Educational image unavailable for this topic";
+let imageQueue = Promise.resolve();
+
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function runImageJob<T>(job: () => Promise<T>): Promise<T> {
+  const run = imageQueue.then(async () => {
+    const result = await job();
+    await wait(1800);
+    return result;
+  });
+  imageQueue = run.then(() => undefined, () => undefined);
+  return run;
+}
 
 function clean(input?: string) {
   return (input || "").replace(/\s+/g, " ").trim();
@@ -139,9 +154,9 @@ export async function fetchVerifiedEducationalImage(
   const prompt = buildEducationalImagePrompt(context);
   const key = buildEducationalImageKey(context, w, h);
   try {
-    const result = await generateEducationalImage({ data: { prompt } });
+    const result = await runImageJob(() => generateEducationalImage({ data: { prompt } }));
     if (!result.ok) {
-      console.error("[educationalImages] Gemini failed:", result.error);
+      console.error("[educationalImages] image generation failed:", result.error);
       return { ok: false, error: result.error, key, prompt };
     }
     const verified = (await normalizeIfNotBlank(result.dataUrl, w, h)) || result.dataUrl;
@@ -154,8 +169,8 @@ export async function fetchVerifiedEducationalImage(
 }
 
 export async function ensureDocEducationalImages(doc: GeneratedDoc): Promise<GeneratedDoc> {
-  const pages = await Promise.all(
-    doc.pages.map(async (page) => {
+  const pages = [];
+  for (const page of doc.pages) {
       const context = {
         subject: doc.subject,
         chapter: page.title,
@@ -163,24 +178,27 @@ export async function ensureDocEducationalImages(doc: GeneratedDoc): Promise<Gen
         keywords: page.sections.map((s) => s.heading).join(", "),
       };
       const key = buildEducationalImageKey(context, 1024, 576);
-      if (page.educationalImage?.key === key) return page;
+      if (page.educationalImage?.key === key) {
+        pages.push(page);
+        continue;
+      }
       const result = await fetchVerifiedEducationalImage(context, 1024, 576);
       if (result.ok) {
-        return {
+        pages.push({
           ...page,
           educationalImage: { dataUrl: result.dataUrl, key: result.key, prompt: result.prompt },
           unavailableImageKey: undefined,
           imageError: undefined,
-        };
+        });
+        continue;
       }
-      return {
+      pages.push({
         ...page,
         educationalImage: undefined,
         unavailableImageKey: key,
         imageError: result.error,
-      };
-    }),
-  );
+      });
+  }
   return { ...doc, pages };
 }
 
