@@ -182,27 +182,58 @@ const geminiImageInputSchema = z.object({
 });
 
 const LOVABLE_IMAGE_MODELS = [
-  "google/gemini-2.5-flash-image",
+  "openai/gpt-image-2",
+  "openai/gpt-image-1-mini",
   "google/gemini-3.1-flash-image-preview",
-  "google/gemini-3-pro-image-preview",
-];
+] as const;
 
-async function callLovableImageOnce(prompt: string, key: string, model: string) {
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function parseGatewayError(status: number, text: string) {
+  try {
+    const json = JSON.parse(text);
+    const message = json?.error?.message || json?.message || text;
+    const code = json?.error?.code || json?.type || "gateway_error";
+    return { message: `${code}: ${message}`, retryable: status === 429 || status >= 500 };
+  } catch {
+    return { message: text || `HTTP ${status}`, retryable: status === 429 || status >= 500 };
+  }
+}
+
+async function callLovableImageOnce(prompt: string, key: string, model: (typeof LOVABLE_IMAGE_MODELS)[number]) {
+  const isGemini = model.startsWith("google/");
   const res = await fetch("https://ai.gateway.lovable.dev/v1/images/generations", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${key}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: "user", content: prompt }],
-      modalities: ["image", "text"],
-    }),
+    body: JSON.stringify(
+      isGemini
+        ? {
+            model,
+            messages: [{ role: "user", content: prompt }],
+            modalities: ["image", "text"],
+          }
+        : {
+            model,
+            prompt,
+            size: "1024x1024",
+            quality: "low",
+            n: 1,
+          },
+    ),
   });
   const text = await res.text();
   if (!res.ok) {
-    return { ok: false as const, error: `Lovable AI ${model} HTTP ${res.status}: ${text.slice(0, 600)}` };
+    const parsed = parseGatewayError(res.status, text);
+    return {
+      ok: false as const,
+      retryable: parsed.retryable,
+      error: `Lovable AI ${model} HTTP ${res.status}: ${parsed.message.slice(0, 600)}`,
+    };
   }
   let json: any;
   try {
