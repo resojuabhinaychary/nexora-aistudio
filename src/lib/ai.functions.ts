@@ -193,8 +193,9 @@ const geminiImageInputSchema = z.object({
 
 const LOVABLE_IMAGE_MODELS = [
   "openai/gpt-image-2",
+  "google/gemini-3.1-flash-image",
   "openai/gpt-image-1-mini",
-  "google/gemini-3.1-flash-image-preview",
+  "google/gemini-2.5-flash-image",
 ] as const;
 
 type ImageGenerationResponse = {
