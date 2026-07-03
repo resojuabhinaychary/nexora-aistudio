@@ -12,7 +12,7 @@ import { getProject, saveProject, type Project } from "@/lib/projects";
 import { exportDocToPDF } from "@/lib/pdf";
 import { explainConcept } from "@/lib/ai.functions";
 import type { GeneratedPage } from "@/lib/ai.functions";
-import { ensureDocEducationalImages } from "@/lib/educationalImages";
+import { ensureDocEducationalImages, type ImageGenerationProgress } from "@/lib/educationalImages";
 
 export const Route = createFileRoute("/workspace/$id")({
   head: () => ({ meta: [{ title: "Workspace — Nexora AI" }] }),
@@ -27,6 +27,7 @@ function Workspace() {
   const [presenting, setPresenting] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [imageProgress, setImageProgress] = useState<ImageGenerationProgress | null>(null);
   const [lastPdf, setLastPdf] = useState<{ blob: Blob; filename: string } | null>(null);
   const ask = useServerFn(explainConcept);
 
@@ -105,10 +106,17 @@ function Workspace() {
   const handleExport = async () => {
     if (!project) return;
     setExporting(true);
+    setImageProgress(null);
     toast.loading("Building illustrated PDF…", { id: "pdf" });
     try {
-      toast.loading("Generating and verifying educational images…", { id: "pdf" });
-      const docWithImages = await ensureDocEducationalImages(project.doc);
+      const docWithImages = await ensureDocEducationalImages(project.doc, {
+        onProgress: (progress) => {
+          setImageProgress(progress);
+          toast.loading(`${progress.message} · ${progress.completed}/${progress.total} complete`, {
+            id: "pdf",
+          });
+        },
+      });
       setProject((p) => (p ? { ...p, doc: docWithImages } : p));
       toast.loading("Embedding verified images into PDF…", { id: "pdf" });
       const out = await exportDocToPDF(docWithImages);
@@ -118,6 +126,7 @@ function Workspace() {
       toast.error(e instanceof Error ? e.message : "Export failed", { id: "pdf" });
     } finally {
       setExporting(false);
+      setImageProgress(null);
     }
   };
 
@@ -204,7 +213,27 @@ function Workspace() {
 
       {exporting && (
         <div className="pointer-events-none fixed inset-x-0 bottom-24 z-40 flex justify-center">
-          <div className="rounded-full border border-border bg-white px-4 py-2 text-xs font-bold text-ink shadow-soft">Preparing your illustrated PDF…</div>
+          <div className="w-[min(92vw,420px)] rounded-2xl border border-border bg-white px-4 py-3 text-xs font-bold text-ink shadow-soft">
+            <div className="flex items-center justify-between gap-3">
+              <span>{imageProgress?.message || "Preparing your illustrated PDF…"}</span>
+              {imageProgress && <span>{imageProgress.completed}/{imageProgress.total}</span>}
+            </div>
+            <div className="mt-2 h-2 overflow-hidden rounded-full bg-secondary">
+              <div
+                className="h-full rounded-full gradient-aurora transition-all duration-300"
+                style={{
+                  width: imageProgress?.total
+                    ? `${Math.round((imageProgress.completed / imageProgress.total) * 100)}%`
+                    : "20%",
+                }}
+              />
+            </div>
+            {imageProgress && (
+              <div className="mt-1 text-[10px] text-muted-foreground">
+                {imageProgress.success} ready · {imageProgress.failed} skipped · {imageProgress.active} running
+              </div>
+            )}
+          </div>
         </div>
       )}
 

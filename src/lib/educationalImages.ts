@@ -1,4 +1,4 @@
-import type { GeneratedDoc } from "./ai.functions";
+import type { GeneratedDoc, ImageRequestLog } from "./ai.functions";
 import { generateEducationalImage } from "./ai.functions";
 
 export type EducationalImageContext = {
@@ -9,23 +9,39 @@ export type EducationalImageContext = {
 };
 
 const UNAVAILABLE = "Educational image unavailable for this topic";
-let imageQueue = Promise.resolve();
+const MAX_CONCURRENT_IMAGE_REQUESTS = 3;
+const SERVER_FUNCTION_TIMEOUT_MS = 100_000;
 
-function wait(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+type CachedImage = {
+  dataUrl: string;
+  key: string;
+  prompt: string;
+  logs?: ImageRequestLog[];
+  mimeType?: string;
+  byteSize?: number;
+  width?: number;
+  height?: number;
+};
 
-async function runImageJob<T>(job: () => Promise<T>): Promise<T> {
-  const run = imageQueue.then(async () => {
-    const result = await job();
-    await wait(1800);
-    return result;
+const successfulImageCache = new Map<string, CachedImage>();
+const inFlightImageCache = new Map<string, Promise<EducationalImageResult>>();
+
+export type ImageGenerationProgress = {
+  completed: number;
+  total: number;
+  active: number;
+  success: number;
+  failed: number;
+  currentPage?: number;
+  message: string;
+};
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), timeoutMs);
   });
-  imageQueue = run.then(
-    () => undefined,
-    () => undefined,
-  );
-  return run;
+  return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timer));
 }
 
 function clean(input?: string) {
@@ -92,8 +108,34 @@ export function buildEducationalImageKey(context: EducationalImageContext, w = 1
   return `${buildEducationalImagePrompt(context)}|${w}x${h}`;
 }
 
-async function normalizeIfNotBlank(dataUrl: string, w: number, h: number): Promise<string | null> {
-  if (typeof document === "undefined" || typeof Image === "undefined") return null;
+function parseImageDataUrl(dataUrl: string) {
+  const match = dataUrl.match(/^data:(image\/(?:png|jpeg|jpg|webp));base64,([A-Za-z0-9+/=]+)$/);
+  if (!match) return null;
+  const [, mimeType, base64] = match;
+  let byteSize = 0;
+  try {
+    byteSize = atob(base64).length;
+  } catch {
+    return null;
+  }
+  return byteSize > 0 ? { mimeType, byteSize } : null;
+}
+
+async function normalizeIfValid(dataUrl: string, w: number, h: number): Promise<
+  | {
+      dataUrl: string;
+      mimeType: string;
+      byteSize: number;
+      width: number;
+      height: number;
+    }
+  | null
+> {
+  const parsed = parseImageDataUrl(dataUrl);
+  if (!parsed) return null;
+  if (typeof document === "undefined" || typeof Image === "undefined") {
+    return { dataUrl, mimeType: parsed.mimeType, byteSize: parsed.byteSize, width: 1, height: 1 };
+  }
   return await new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
@@ -141,7 +183,19 @@ async function normalizeIfNotBlank(dataUrl: string, w: number, h: number): Promi
           resolve(null);
           return;
         }
-        resolve(canvas.toDataURL("image/jpeg", 0.88));
+        const normalized = canvas.toDataURL("image/jpeg", 0.88);
+        const normalizedParsed = parseImageDataUrl(normalized);
+        if (!normalizedParsed) {
+          resolve(null);
+          return;
+        }
+        resolve({
+          dataUrl: normalized,
+          mimeType: normalizedParsed.mimeType,
+          byteSize: normalizedParsed.byteSize,
+          width: canvas.width,
+          height: canvas.height,
+        });
       } catch {
         resolve(null);
       }
@@ -152,8 +206,18 @@ async function normalizeIfNotBlank(dataUrl: string, w: number, h: number): Promi
 }
 
 export type EducationalImageResult =
-  | { ok: true; dataUrl: string; key: string; prompt: string }
-  | { ok: false; error: string; key: string; prompt: string };
+  | {
+      ok: true;
+      dataUrl: string;
+      key: string;
+      prompt: string;
+      logs?: ImageRequestLog[];
+      mimeType?: string;
+      byteSize?: number;
+      width?: number;
+      height?: number;
+    }
+  | { ok: false; error: string; key: string; prompt: string; logs?: ImageRequestLog[] };
 
 export async function fetchVerifiedEducationalImage(
   context: EducationalImageContext,
@@ -162,24 +226,87 @@ export async function fetchVerifiedEducationalImage(
 ): Promise<EducationalImageResult> {
   const prompt = buildEducationalImagePrompt(context);
   const key = buildEducationalImageKey(context, w, h);
+  const cached = successfulImageCache.get(key);
+  if (cached) return { ok: true, ...cached };
+  const inFlight = inFlightImageCache.get(key);
+  if (inFlight) return inFlight;
+
+  const request = (async (): Promise<EducationalImageResult> => {
   try {
-    const result = await runImageJob(() => generateEducationalImage({ data: { prompt } }));
+    const result = await withTimeout(
+      generateEducationalImage({ data: { prompt } }),
+      SERVER_FUNCTION_TIMEOUT_MS,
+      `Image generation exceeded ${Math.round(SERVER_FUNCTION_TIMEOUT_MS / 1000)} seconds and was skipped.`,
+    );
     if (!result.ok) {
       console.error("[educationalImages] image generation failed:", result.error);
-      return { ok: false, error: result.error, key, prompt };
+      return { ok: false, error: result.error, key, prompt, logs: result.logs };
     }
-    const verified = (await normalizeIfNotBlank(result.dataUrl, w, h)) || result.dataUrl;
-    return { ok: true, dataUrl: verified, key, prompt };
+    const verified = await normalizeIfValid(result.dataUrl, w, h);
+    if (!verified) {
+      return {
+        ok: false,
+        error: "Generated image failed validation: missing data, invalid MIME type, zero bytes, blank content, or invalid dimensions.",
+        key,
+        prompt,
+        logs: result.logs,
+      };
+    }
+    const success: CachedImage = { key, prompt, logs: result.logs, ...verified };
+    successfulImageCache.set(key, success);
+    return { ok: true, ...success };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[educationalImages] threw:", msg);
     return { ok: false, error: msg, key, prompt };
   }
+  })();
+
+  inFlightImageCache.set(key, request);
+  request.finally(() => inFlightImageCache.delete(key));
+  return request;
 }
 
-export async function ensureDocEducationalImages(doc: GeneratedDoc): Promise<GeneratedDoc> {
-  const pages: GeneratedDoc["pages"] = [];
-  for (const page of doc.pages) {
+export async function ensureDocEducationalImages(
+  doc: GeneratedDoc,
+  options: {
+    concurrency?: number;
+    onProgress?: (progress: ImageGenerationProgress) => void;
+  } = {},
+): Promise<GeneratedDoc> {
+  const pages: GeneratedDoc["pages"] = Array.from({ length: doc.pages.length });
+  const total = doc.pages.length;
+  const concurrency = Math.max(
+    1,
+    Math.min(options.concurrency ?? MAX_CONCURRENT_IMAGE_REQUESTS, MAX_CONCURRENT_IMAGE_REQUESTS, total || 1),
+  );
+  let cursor = 0;
+  let active = 0;
+  let completed = 0;
+  let success = 0;
+  let failed = 0;
+
+  const emit = (currentPage?: number) => {
+    options.onProgress?.({
+      completed,
+      total,
+      active,
+      success,
+      failed,
+      currentPage,
+      message: total ? `Generating image ${Math.min(completed + active, total)}/${total}` : "No images required",
+    });
+  };
+
+  emit();
+
+  const worker = async () => {
+    while (cursor < total) {
+      const index = cursor;
+      cursor += 1;
+      active += 1;
+      emit(index + 1);
+      const page = doc.pages[index];
     const context = {
       subject: doc.subject,
       chapter: page.title,
@@ -188,26 +315,59 @@ export async function ensureDocEducationalImages(doc: GeneratedDoc): Promise<Gen
     };
     const key = buildEducationalImageKey(context, 1024, 576);
     if (page.educationalImage?.key === key) {
-      pages.push(page);
-      continue;
+        successfulImageCache.set(key, {
+          key,
+          prompt: page.educationalImage.prompt || buildEducationalImagePrompt(context),
+          dataUrl: page.educationalImage.dataUrl,
+          logs: page.educationalImage.logs || page.imageLogs,
+          mimeType: page.educationalImage.mimeType,
+          byteSize: page.educationalImage.byteSize,
+          width: page.educationalImage.width,
+          height: page.educationalImage.height,
+        });
+        pages[index] = page;
+        success += 1;
+        completed += 1;
+        active -= 1;
+        emit(index + 1);
+        continue;
     }
     const result = await fetchVerifiedEducationalImage(context, 1024, 576);
     if (result.ok) {
-      pages.push({
+        pages[index] = {
         ...page,
-        educationalImage: { dataUrl: result.dataUrl, key: result.key, prompt: result.prompt },
+          educationalImage: {
+            dataUrl: result.dataUrl,
+            key: result.key,
+            prompt: result.prompt,
+            logs: result.logs,
+            mimeType: result.mimeType,
+            byteSize: result.byteSize,
+            width: result.width,
+            height: result.height,
+          },
         unavailableImageKey: undefined,
         imageError: undefined,
-      });
-      continue;
+          imageLogs: result.logs,
+        };
+        success += 1;
+      } else {
+        pages[index] = {
+          ...page,
+          educationalImage: undefined,
+          unavailableImageKey: key,
+          imageError: result.error,
+          imageLogs: result.logs,
+        };
+        failed += 1;
     }
-    pages.push({
-      ...page,
-      educationalImage: undefined,
-      unavailableImageKey: key,
-      imageError: result.error,
-    });
-  }
+      completed += 1;
+      active -= 1;
+      emit(index + 1);
+    }
+  };
+
+  await Promise.all(Array.from({ length: concurrency }, () => worker()));
   return { ...doc, pages };
 }
 
