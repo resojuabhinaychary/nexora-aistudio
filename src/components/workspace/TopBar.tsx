@@ -1,7 +1,8 @@
 import { Link } from "@tanstack/react-router";
-import { ArrowLeft, Download, Play, Share2, Sparkles } from "lucide-react";
+import { ArrowLeft, Download, Moon, Play, Share2, Sparkles, Sun } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { toast } from "sonner";
+import { useTheme } from "@/lib/theme";
 
 export function TopBar({
   title,
@@ -14,6 +15,7 @@ export function TopBar({
   onPresent: () => void;
   onToggleAI?: () => void;
 }) {
+  const { theme, toggle } = useTheme();
   const share = async () => {
     try {
       await navigator.clipboard.writeText(window.location.href);
@@ -38,6 +40,13 @@ export function TopBar({
       <div className="mx-3 hidden h-6 w-px bg-border md:block" />
       <div className="min-w-0 flex-1 truncate text-sm font-bold text-ink">{title}</div>
       <div className="flex items-center gap-2">
+        <button
+          onClick={toggle}
+          aria-label="Toggle theme"
+          className="grid h-9 w-9 place-items-center rounded-xl border border-border bg-white text-ink transition hover:border-primary/40 dark:bg-card dark:text-foreground"
+        >
+          {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+        </button>
         {onToggleAI && (
           <button
             onClick={onToggleAI}

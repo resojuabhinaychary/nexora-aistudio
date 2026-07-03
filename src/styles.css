@@ -82,6 +82,35 @@
   --shadow-soft: 0 1px 2px oklch(0.3 0.05 260 / 0.06), 0 4px 12px -4px oklch(0.3 0.05 260 / 0.08);
 }
 
+.dark {
+  --background: oklch(0.16 0.02 260);
+  --foreground: oklch(0.96 0.01 240);
+  --card: oklch(0.2 0.02 260);
+  --card-foreground: oklch(0.96 0.01 240);
+  --popover: oklch(0.2 0.02 260);
+  --popover-foreground: oklch(0.96 0.01 240);
+  --primary: oklch(0.72 0.18 250);
+  --primary-foreground: oklch(0.12 0.02 260);
+  --secondary: oklch(0.24 0.03 260);
+  --secondary-foreground: oklch(0.96 0.01 240);
+  --muted: oklch(0.22 0.02 260);
+  --muted-foreground: oklch(0.72 0.02 260);
+  --accent: oklch(0.72 0.16 200);
+  --accent-foreground: oklch(0.12 0.02 260);
+  --border: oklch(0.28 0.02 260);
+  --input: oklch(0.26 0.02 260);
+  --ring: oklch(0.72 0.18 250);
+}
+.dark body {
+  background-image:
+    radial-gradient(ellipse 70% 50% at 15% 0%, oklch(0.4 0.12 260 / 0.35), transparent 60%),
+    radial-gradient(ellipse 55% 40% at 95% 5%, oklch(0.42 0.1 200 / 0.28), transparent 60%),
+    radial-gradient(ellipse 60% 50% at 85% 100%, oklch(0.4 0.12 290 / 0.28), transparent 60%),
+    radial-gradient(ellipse 65% 55% at 20% 100%, oklch(0.4 0.1 170 / 0.2), transparent 60%);
+}
+.dark h1, .dark h2, .dark h3, .dark h4, .dark h5 { color: oklch(0.98 0.01 240); }
+.dark .text-ink { color: oklch(0.98 0.01 240); }
+
 @layer base {
   * { border-color: var(--color-border); }
   html, body {
