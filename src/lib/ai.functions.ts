@@ -362,6 +362,7 @@ export const generateEducationalImage = createServerFn({ method: "POST" })
       return {
         ok: false as const,
         error: "LOVABLE_API_KEY is not configured on the server.",
+        logs: [],
       };
     }
     const errors: string[] = [];

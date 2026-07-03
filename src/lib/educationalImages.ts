@@ -37,11 +37,13 @@ export type ImageGenerationProgress = {
 };
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
-  let timer: ReturnType<typeof setTimeout>;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   const timeoutPromise = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error(message)), timeoutMs);
   });
-  return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timer));
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
 }
 
 function clean(input?: string) {
@@ -114,7 +116,8 @@ function parseImageDataUrl(dataUrl: string) {
   const [, mimeType, base64] = match;
   let byteSize = 0;
   try {
-    byteSize = atob(base64).length;
+    byteSize =
+      typeof atob === "function" ? atob(base64).length : Math.floor((base64.length * 3) / 4);
   } catch {
     return null;
   }
@@ -232,34 +235,35 @@ export async function fetchVerifiedEducationalImage(
   if (inFlight) return inFlight;
 
   const request = (async (): Promise<EducationalImageResult> => {
-  try {
-    const result = await withTimeout(
-      generateEducationalImage({ data: { prompt } }),
-      SERVER_FUNCTION_TIMEOUT_MS,
-      `Image generation exceeded ${Math.round(SERVER_FUNCTION_TIMEOUT_MS / 1000)} seconds and was skipped.`,
-    );
-    if (!result.ok) {
-      console.error("[educationalImages] image generation failed:", result.error);
-      return { ok: false, error: result.error, key, prompt, logs: result.logs };
+    try {
+      const result = await withTimeout(
+        generateEducationalImage({ data: { prompt } }),
+        SERVER_FUNCTION_TIMEOUT_MS,
+        `Image generation exceeded ${Math.round(SERVER_FUNCTION_TIMEOUT_MS / 1000)} seconds and was skipped.`,
+      );
+      if (!result.ok) {
+        console.error("[educationalImages] image generation failed:", result.error);
+        return { ok: false, error: result.error, key, prompt, logs: result.logs };
+      }
+      const verified = await normalizeIfValid(result.dataUrl, w, h);
+      if (!verified) {
+        return {
+          ok: false,
+          error:
+            "Generated image failed validation: missing data, invalid MIME type, zero bytes, blank content, or invalid dimensions.",
+          key,
+          prompt,
+          logs: result.logs,
+        };
+      }
+      const success: CachedImage = { key, prompt, logs: result.logs, ...verified };
+      successfulImageCache.set(key, success);
+      return { ok: true, ...success };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[educationalImages] threw:", msg);
+      return { ok: false, error: msg, key, prompt };
     }
-    const verified = await normalizeIfValid(result.dataUrl, w, h);
-    if (!verified) {
-      return {
-        ok: false,
-        error: "Generated image failed validation: missing data, invalid MIME type, zero bytes, blank content, or invalid dimensions.",
-        key,
-        prompt,
-        logs: result.logs,
-      };
-    }
-    const success: CachedImage = { key, prompt, logs: result.logs, ...verified };
-    successfulImageCache.set(key, success);
-    return { ok: true, ...success };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error("[educationalImages] threw:", msg);
-    return { ok: false, error: msg, key, prompt };
-  }
   })();
 
   inFlightImageCache.set(key, request);
@@ -307,14 +311,14 @@ export async function ensureDocEducationalImages(
       active += 1;
       emit(index + 1);
       const page = doc.pages[index];
-    const context = {
-      subject: doc.subject,
-      chapter: page.title,
-      topic: page.imageQuery || page.title,
-      keywords: page.sections.map((s) => s.heading).join(", "),
-    };
-    const key = buildEducationalImageKey(context, 1024, 576);
-    if (page.educationalImage?.key === key) {
+      const context = {
+        subject: doc.subject,
+        chapter: page.title,
+        topic: page.imageQuery || page.title,
+        keywords: page.sections.map((s) => s.heading).join(", "),
+      };
+      const key = buildEducationalImageKey(context, 1024, 576);
+      if (page.educationalImage?.key === key) {
         successfulImageCache.set(key, {
           key,
           prompt: page.educationalImage.prompt || buildEducationalImagePrompt(context),
@@ -331,11 +335,11 @@ export async function ensureDocEducationalImages(
         active -= 1;
         emit(index + 1);
         continue;
-    }
-    const result = await fetchVerifiedEducationalImage(context, 1024, 576);
-    if (result.ok) {
+      }
+      const result = await fetchVerifiedEducationalImage(context, 1024, 576);
+      if (result.ok) {
         pages[index] = {
-        ...page,
+          ...page,
           educationalImage: {
             dataUrl: result.dataUrl,
             key: result.key,
@@ -346,8 +350,8 @@ export async function ensureDocEducationalImages(
             width: result.width,
             height: result.height,
           },
-        unavailableImageKey: undefined,
-        imageError: undefined,
+          unavailableImageKey: undefined,
+          imageError: undefined,
           imageLogs: result.logs,
         };
         success += 1;
@@ -360,7 +364,7 @@ export async function ensureDocEducationalImages(
           imageLogs: result.logs,
         };
         failed += 1;
-    }
+      }
       completed += 1;
       active -= 1;
       emit(index + 1);
