@@ -1,4 +1,4 @@
-import type { GeneratedPage, GeneratedSection } from "@/lib/ai.functions";
+import type { GeneratedPage, GeneratedSection, ImageRequestLog } from "@/lib/ai.functions";
 import { buildEducationalImageKey, fetchVerifiedEducationalImage } from "@/lib/educationalImages";
 import { motion, AnimatePresence } from "framer-motion";
 import type { ElementType, FocusEvent } from "react";
@@ -46,6 +46,9 @@ export function Canvas({
 }) {
   const [imageState, setImageState] = useState<"idle" | "loading" | "failed">("idle");
   const [imageError, setImageError] = useState<string | null>(page.imageError ?? null);
+  const [imageLogs, setImageLogs] = useState<ImageRequestLog[]>(
+    page.imageLogs || page.educationalImage?.logs || [],
+  );
   const imageContext = useMemo(
     () => ({
       subject,
@@ -65,6 +68,7 @@ export function Canvas({
     if (verifiedImage) {
       setImageState("idle");
       setImageError(null);
+      setImageLogs(page.educationalImage?.logs || page.imageLogs || []);
       return () => {
         cancelled = true;
       };
@@ -72,6 +76,7 @@ export function Canvas({
     if (imageUnavailable) {
       setImageState("failed");
       setImageError(page.imageError ?? "Image generation failed.");
+      setImageLogs(page.imageLogs || []);
       return () => {
         cancelled = true;
       };
@@ -82,20 +87,33 @@ export function Canvas({
       if (result.ok) {
         setImageState("idle");
         setImageError(null);
+        setImageLogs(result.logs || []);
         onChange({
           ...page,
-          educationalImage: { dataUrl: result.dataUrl, key: result.key, prompt: result.prompt },
+          educationalImage: {
+            dataUrl: result.dataUrl,
+            key: result.key,
+            prompt: result.prompt,
+            logs: result.logs,
+            mimeType: result.mimeType,
+            byteSize: result.byteSize,
+            width: result.width,
+            height: result.height,
+          },
           unavailableImageKey: undefined,
           imageError: undefined,
+          imageLogs: result.logs,
         });
       } else {
         setImageState("failed");
         setImageError(result.error);
+        setImageLogs(result.logs || []);
         onChange({
           ...page,
           educationalImage: undefined,
           unavailableImageKey: imageKey,
           imageError: result.error,
+          imageLogs: result.logs,
         });
       }
     });
@@ -154,14 +172,26 @@ export function Canvas({
             <div className="mt-3 space-y-1">
               <p className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
                 {imageState === "loading"
-                  ? "Generating educational image…"
-                  : "Image generation is queued for retry"}
+                  ? `Generating image for page ${pageIndex + 1}…`
+                  : "Educational image could not be generated."}
               </p>
+              {imageState === "loading" && (
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-secondary">
+                  <div className="h-full w-1/2 animate-pulse rounded-full gradient-aurora" />
+                </div>
+              )}
               {imageState === "failed" && imageError && (
                 <details className="rounded-md bg-secondary px-3 py-2 text-[11px] font-semibold text-muted-foreground">
                   <summary className="cursor-pointer text-ink">Technical details</summary>
                   <pre className="mt-2 max-h-28 overflow-auto whitespace-pre-wrap break-words text-[10px] font-medium text-muted-foreground">
-                    {imageError}
+                    {[
+                      `Error: ${imageError}`,
+                      `Prompt: ${page.imageQuery || page.title}`,
+                      ...imageLogs.map(
+                        (log, i) =>
+                          `Request ${i + 1}: model=${log.model}; start=${log.startTime}; end=${log.endTime}; duration=${log.durationMs}ms; response=${log.responseCode ?? "none"}; retry=${log.retryCount}; success=${log.success}; error=${log.errorMessage || "none"}`,
+                      ),
+                    ].join("\n")}
                   </pre>
                 </details>
               )}

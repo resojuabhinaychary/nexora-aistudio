@@ -28,11 +28,20 @@ export async function exportDocToPDF(doc: GeneratedDoc): Promise<{ blob: Blob; f
   const coverImg = pageImgs.find(Boolean) || null;
   const sectionImgMap = new Map<string, string>();
 
-  const drawImageError = (y: number, msg: string): number => {
+  const imageFormat = (img: string): "PNG" | "JPEG" | "WEBP" => {
+    if (img.startsWith("data:image/jpeg") || img.startsWith("data:image/jpg")) return "JPEG";
+    if (img.startsWith("data:image/webp")) return "WEBP";
+    return "PNG";
+  };
+
+  const drawImageError = (y: number, msg?: string): number => {
     pdf.setFont("helvetica", "bold");
     pdf.setFontSize(10);
     pdf.setTextColor(180, 50, 60);
-    const lines = pdf.splitTextToSize(`Image generation error: ${msg}`, contentW);
+    const note = msg
+      ? `Educational image could not be generated. ${msg}`
+      : "Educational image could not be generated.";
+    const lines = pdf.splitTextToSize(note, contentW);
     pdf.text(lines, margin, y + 8);
     return y + lines.length * 12 + 8;
   };
@@ -78,7 +87,7 @@ export async function exportDocToPDF(doc: GeneratedDoc): Promise<{ blob: Blob; f
     pdf.setLineWidth(0.8);
     pdf.roundedRect(margin, y, contentW, cardH, 10, 10, "FD");
     try {
-      pdf.addImage(img, "PNG", margin + 8, y + 8, contentW - 16, imgH, undefined, "FAST");
+      pdf.addImage(img, imageFormat(img), margin + 8, y + 8, contentW - 16, imgH, undefined, "FAST");
     } catch {
       return y;
     }
@@ -189,7 +198,7 @@ export async function exportDocToPDF(doc: GeneratedDoc): Promise<{ blob: Blob; f
       pdf.setFillColor(255, 255, 255);
       pdf.setDrawColor(220, 228, 245);
       pdf.roundedRect(margin - 6, 54, contentW + 12, 220, 14, 14, "FD");
-      pdf.addImage(coverImg, "PNG", margin, 60, contentW, 208, undefined, "FAST");
+      pdf.addImage(coverImg, imageFormat(coverImg), margin, 60, contentW, 208, undefined, "FAST");
       coverDrawn = true;
     } catch {
       coverDrawn = false;
@@ -259,7 +268,7 @@ export async function exportDocToPDF(doc: GeneratedDoc): Promise<{ blob: Blob; f
           pdf.setFillColor(248, 250, 255);
           pdf.setDrawColor(220, 228, 245);
           pdf.roundedRect(margin, y, contentW, imgH + 12, 12, 12, "FD");
-          pdf.addImage(img, "PNG", margin + 6, y + 6, contentW - 12, imgH, undefined, "FAST");
+          pdf.addImage(img, imageFormat(img), margin + 6, y + 6, contentW - 12, imgH, undefined, "FAST");
           y += imgH + 24;
         } catch {
           y = drawImageError(y, page.imageError || "Could not embed image into PDF.");

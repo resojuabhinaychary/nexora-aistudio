@@ -22,9 +22,27 @@ export type GeneratedPage = {
     dataUrl: string;
     key: string;
     prompt?: string;
+    logs?: ImageRequestLog[];
+    mimeType?: string;
+    byteSize?: number;
+    width?: number;
+    height?: number;
   };
   unavailableImageKey?: string;
   imageError?: string;
+  imageLogs?: ImageRequestLog[];
+};
+
+export type ImageRequestLog = {
+  model: string;
+  prompt: string;
+  startTime: string;
+  endTime: string;
+  durationMs: number;
+  responseCode?: number;
+  errorMessage?: string;
+  retryCount: number;
+  success: boolean;
 };
 
 export type GeneratedDoc = {
@@ -198,6 +216,9 @@ const LOVABLE_IMAGE_MODELS = [
   "google/gemini-2.5-flash-image",
 ] as const;
 
+const IMAGE_REQUEST_TIMEOUT_MS = 30_000;
+const MAX_IMAGE_ATTEMPTS = 3;
+
 type ImageGenerationResponse = {
   data?: Array<{ b64_json?: string }>;
 };
@@ -225,58 +246,112 @@ async function callLovableImageOnce(
   prompt: string,
   key: string,
   model: (typeof LOVABLE_IMAGE_MODELS)[number],
+  retryCount: number,
 ) {
-  const isGemini = model.startsWith("google/");
-  const res = await fetch("https://ai.gateway.lovable.dev/v1/images/generations", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(
-      isGemini
-        ? {
-            model,
-            messages: [{ role: "user", content: prompt }],
-            modalities: ["image", "text"],
-          }
-        : {
-            model,
-            prompt,
-            size: "1024x1024",
-            quality: "low",
-            n: 1,
-          },
-    ),
-  });
-  const text = await res.text();
-  if (!res.ok) {
-    const parsed = parseGatewayError(res.status, text);
+  const startTime = new Date();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), IMAGE_REQUEST_TIMEOUT_MS);
+  const createLog = (patch: Partial<ImageRequestLog>): ImageRequestLog => {
+    const endTime = new Date();
     return {
-      ok: false as const,
-      retryable: parsed.retryable,
-      error: `Lovable AI ${model} HTTP ${res.status}: ${parsed.message.slice(0, 600)}`,
+      model,
+      prompt,
+      startTime: startTime.toISOString(),
+      endTime: endTime.toISOString(),
+      durationMs: endTime.getTime() - startTime.getTime(),
+      retryCount,
+      success: false,
+      ...patch,
     };
-  }
-  let json: ImageGenerationResponse;
+  };
+  const isGemini = model.startsWith("google/");
   try {
-    json = JSON.parse(text) as ImageGenerationResponse;
-  } catch {
+    const res = await fetch("https://ai.gateway.lovable.dev/v1/images/generations", {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(
+        isGemini
+          ? {
+              model,
+              messages: [{ role: "user", content: prompt }],
+              modalities: ["image", "text"],
+            }
+          : {
+              model,
+              prompt,
+              size: "1024x1024",
+              quality: "low",
+              n: 1,
+            },
+      ),
+    });
+    clearTimeout(timeout);
+    const text = await res.text();
+    if (!res.ok) {
+      const parsed = parseGatewayError(res.status, text);
+      const log = createLog({ responseCode: res.status, errorMessage: parsed.message });
+      console.error("[generateEducationalImage] request", log);
+      return {
+        ok: false as const,
+        retryable: parsed.retryable,
+        log,
+        error: `Lovable AI ${model} HTTP ${res.status}: ${parsed.message.slice(0, 600)}`,
+      };
+    }
+    let json: ImageGenerationResponse;
+    try {
+      json = JSON.parse(text) as ImageGenerationResponse;
+    } catch {
+      const log = createLog({
+        responseCode: res.status,
+        errorMessage: `Returned non-JSON: ${text.slice(0, 300)}`,
+      });
+      console.error("[generateEducationalImage] request", log);
+      return {
+        ok: false as const,
+        retryable: false,
+        log,
+        error: `Lovable AI ${model} returned non-JSON: ${text.slice(0, 300)}`,
+      };
+    }
+    const b64 = json?.data?.[0]?.b64_json;
+    if (b64) {
+      const log = createLog({ responseCode: res.status, success: true });
+      console.info("[generateEducationalImage] request", log);
+      return { ok: true as const, dataUrl: `data:image/png;base64,${b64}`, log };
+    }
+    const log = createLog({
+      responseCode: res.status,
+      errorMessage: `Returned no image. Raw: ${JSON.stringify(json).slice(0, 400)}`,
+    });
+    console.error("[generateEducationalImage] request", log);
     return {
       ok: false as const,
       retryable: false,
-      error: `Lovable AI ${model} returned non-JSON: ${text.slice(0, 300)}`,
+      log,
+      error: `Lovable AI ${model} returned no image. Raw: ${JSON.stringify(json).slice(0, 400)}`,
+    };
+  } catch (err) {
+    clearTimeout(timeout);
+    const timedOut = err instanceof Error && err.name === "AbortError";
+    const errorMessage = timedOut
+      ? `Timed out after ${IMAGE_REQUEST_TIMEOUT_MS / 1000} seconds`
+      : err instanceof Error
+        ? err.message
+        : String(err);
+    const log = createLog({ errorMessage });
+    console.error("[generateEducationalImage] request", log);
+    return {
+      ok: false as const,
+      retryable: true,
+      log,
+      error: `Lovable AI ${model} ${errorMessage}`,
     };
   }
-  const b64 = json?.data?.[0]?.b64_json;
-  if (b64) {
-    return { ok: true as const, dataUrl: `data:image/png;base64,${b64}` };
-  }
-  return {
-    ok: false as const,
-    retryable: false,
-    error: `Lovable AI ${model} returned no image. Raw: ${JSON.stringify(json).slice(0, 400)}`,
-  };
 }
 
 export const generateEducationalImage = createServerFn({ method: "POST" })
@@ -287,24 +362,27 @@ export const generateEducationalImage = createServerFn({ method: "POST" })
       return {
         ok: false as const,
         error: "LOVABLE_API_KEY is not configured on the server.",
+        logs: [],
       };
     }
     const errors: string[] = [];
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const logs: ImageRequestLog[] = [];
+    for (let attempt = 1; attempt <= MAX_IMAGE_ATTEMPTS; attempt += 1) {
       const model = LOVABLE_IMAGE_MODELS[Math.min(attempt - 1, LOVABLE_IMAGE_MODELS.length - 1)];
       try {
-        const result = await callLovableImageOnce(data.prompt, key, model);
-        if (result.ok) return { ok: true as const, dataUrl: result.dataUrl };
+        const result = await callLovableImageOnce(data.prompt, key, model, attempt - 1);
+        logs.push(result.log);
+        if (result.ok) return { ok: true as const, dataUrl: result.dataUrl, logs };
         errors.push(`Attempt ${attempt}: ${result.error}`);
         console.error("[generateEducationalImage]", result.error);
         if (!result.retryable) break;
-        if (attempt < 3) await sleep(attempt * 4500);
+        if (attempt < MAX_IMAGE_ATTEMPTS) await sleep(attempt * 1500);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         errors.push(`Attempt ${attempt} threw: ${msg}`);
         console.error("[generateEducationalImage] threw", err);
-        if (attempt < 3) await sleep(attempt * 4500);
+        if (attempt < MAX_IMAGE_ATTEMPTS) await sleep(attempt * 1500);
       }
     }
-    return { ok: false as const, error: errors.join(" | ") };
+    return { ok: false as const, error: errors.join(" | "), logs };
   });
