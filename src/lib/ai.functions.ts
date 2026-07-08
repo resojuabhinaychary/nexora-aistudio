@@ -31,6 +31,17 @@ export type GeneratedPage = {
   unavailableImageKey?: string;
   imageError?: string;
   imageLogs?: ImageRequestLog[];
+  sectionImages?: Record<
+    number,
+    {
+      dataUrl: string;
+      key: string;
+      prompt?: string;
+      mimeType?: string;
+      width?: number;
+      height?: number;
+    }
+  >;
 };
 
 export type ImageRequestLog = {
@@ -210,10 +221,11 @@ const geminiImageInputSchema = z.object({
 });
 
 const LOVABLE_IMAGE_MODELS = [
-  "openai/gpt-image-2",
+  // Fast, high-quality image models — Nano Banana 2 first for speed.
   "google/gemini-3.1-flash-image",
-  "openai/gpt-image-1-mini",
   "google/gemini-2.5-flash-image",
+  "openai/gpt-image-1-mini",
+  "openai/gpt-image-2",
 ] as const;
 
 const IMAGE_REQUEST_TIMEOUT_MS = 30_000;

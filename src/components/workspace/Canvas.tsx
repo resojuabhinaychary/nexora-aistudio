@@ -216,6 +216,19 @@ export function Canvas({
                     className="mt-2 whitespace-pre-wrap text-[15px] font-medium leading-relaxed text-ink/85"
                   />
                 )}
+                {page.sectionImages?.[i]?.dataUrl && (
+                  <figure className="mt-4 overflow-hidden rounded-2xl border border-border bg-secondary/40">
+                    <img
+                      src={page.sectionImages[i].dataUrl}
+                      alt={s.heading}
+                      className="h-56 w-full object-cover md:h-64"
+                      loading="lazy"
+                    />
+                    <figcaption className="px-4 py-2 text-center text-xs font-semibold text-muted-foreground">
+                      Fig. {s.heading}
+                    </figcaption>
+                  </figure>
+                )}
                 {s.bullets && s.bullets.length > 0 && (
                   <ul className="mt-3 space-y-2">
                     {s.bullets.map((b, bi) => (

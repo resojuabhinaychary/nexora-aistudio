@@ -9,7 +9,7 @@ export type EducationalImageContext = {
 };
 
 const UNAVAILABLE = "Educational image unavailable for this topic";
-const MAX_CONCURRENT_IMAGE_REQUESTS = 3;
+const MAX_CONCURRENT_IMAGE_REQUESTS = 6;
 const SERVER_FUNCTION_TIMEOUT_MS = 100_000;
 
 type CachedImage = {
@@ -278,8 +278,20 @@ export async function ensureDocEducationalImages(
     onProgress?: (progress: ImageGenerationProgress) => void;
   } = {},
 ): Promise<GeneratedDoc> {
-  const pages: GeneratedDoc["pages"] = Array.from({ length: doc.pages.length });
-  const total = doc.pages.length;
+  const pages: GeneratedDoc["pages"] = doc.pages.map((p) => ({ ...p }));
+  // Build a flat task list: 1 cover per page + 1 image per section (max 3 per page).
+  type Task =
+    | { kind: "page"; pageIndex: number }
+    | { kind: "section"; pageIndex: number; sectionIndex: number };
+  const tasks: Task[] = [];
+  doc.pages.forEach((page, pageIndex) => {
+    tasks.push({ kind: "page", pageIndex });
+    const sectionCount = Math.min(3, page.sections.length);
+    for (let s = 0; s < sectionCount; s += 1) {
+      tasks.push({ kind: "section", pageIndex, sectionIndex: s });
+    }
+  });
+  const total = tasks.length;
   const concurrency = Math.max(
     1,
     Math.min(options.concurrency ?? MAX_CONCURRENT_IMAGE_REQUESTS, MAX_CONCURRENT_IMAGE_REQUESTS, total || 1),
@@ -306,68 +318,106 @@ export async function ensureDocEducationalImages(
 
   const worker = async () => {
     while (cursor < total) {
-      const index = cursor;
+      const taskIndex = cursor;
       cursor += 1;
       active += 1;
-      emit(index + 1);
-      const page = doc.pages[index];
-      const context = {
-        subject: doc.subject,
-        chapter: page.title,
-        topic: page.imageQuery || page.title,
-        keywords: page.sections.map((s) => s.heading).join(", "),
-      };
-      const key = buildEducationalImageKey(context, 1024, 576);
-      if (page.educationalImage?.key === key) {
-        successfulImageCache.set(key, {
-          key,
-          prompt: page.educationalImage.prompt || buildEducationalImagePrompt(context),
-          dataUrl: page.educationalImage.dataUrl,
-          logs: page.educationalImage.logs || page.imageLogs,
-          mimeType: page.educationalImage.mimeType,
-          byteSize: page.educationalImage.byteSize,
-          width: page.educationalImage.width,
-          height: page.educationalImage.height,
-        });
-        pages[index] = page;
-        success += 1;
-        completed += 1;
-        active -= 1;
-        emit(index + 1);
-        continue;
-      }
-      const result = await fetchVerifiedEducationalImage(context, 1024, 576);
-      if (result.ok) {
-        pages[index] = {
-          ...page,
-          educationalImage: {
-            dataUrl: result.dataUrl,
-            key: result.key,
-            prompt: result.prompt,
-            logs: result.logs,
-            mimeType: result.mimeType,
-            byteSize: result.byteSize,
-            width: result.width,
-            height: result.height,
-          },
-          unavailableImageKey: undefined,
-          imageError: undefined,
-          imageLogs: result.logs,
+      const task = tasks[taskIndex];
+      emit(task.pageIndex + 1);
+
+      if (task.kind === "page") {
+        const srcPage = doc.pages[task.pageIndex];
+        const context = {
+          subject: doc.subject,
+          chapter: srcPage.title,
+          topic: srcPage.imageQuery || srcPage.title,
+          keywords: srcPage.sections.map((s) => s.heading).join(", "),
         };
-        success += 1;
+        const key = buildEducationalImageKey(context, 1024, 576);
+        const existing = pages[task.pageIndex];
+        if (existing.educationalImage?.key === key) {
+          successfulImageCache.set(key, {
+            key,
+            prompt: existing.educationalImage.prompt || buildEducationalImagePrompt(context),
+            dataUrl: existing.educationalImage.dataUrl,
+            logs: existing.educationalImage.logs || existing.imageLogs,
+            mimeType: existing.educationalImage.mimeType,
+            byteSize: existing.educationalImage.byteSize,
+            width: existing.educationalImage.width,
+            height: existing.educationalImage.height,
+          });
+          success += 1;
+        } else {
+          const result = await fetchVerifiedEducationalImage(context, 1024, 576);
+          if (result.ok) {
+            pages[task.pageIndex] = {
+              ...existing,
+              educationalImage: {
+                dataUrl: result.dataUrl,
+                key: result.key,
+                prompt: result.prompt,
+                logs: result.logs,
+                mimeType: result.mimeType,
+                byteSize: result.byteSize,
+                width: result.width,
+                height: result.height,
+              },
+              unavailableImageKey: undefined,
+              imageError: undefined,
+              imageLogs: result.logs,
+            };
+            success += 1;
+          } else {
+            pages[task.pageIndex] = {
+              ...existing,
+              educationalImage: undefined,
+              unavailableImageKey: key,
+              imageError: result.error,
+              imageLogs: result.logs,
+            };
+            failed += 1;
+          }
+        }
       } else {
-        pages[index] = {
-          ...page,
-          educationalImage: undefined,
-          unavailableImageKey: key,
-          imageError: result.error,
-          imageLogs: result.logs,
+        const srcPage = doc.pages[task.pageIndex];
+        const sec = srcPage.sections[task.sectionIndex];
+        const paraSnippet = (sec.paragraph || (sec.bullets || []).join("; ") || "").slice(0, 200);
+        const context = {
+          subject: doc.subject,
+          chapter: srcPage.title,
+          topic: `${sec.heading} — ${paraSnippet}`,
+          keywords: sec.heading,
         };
-        failed += 1;
+        const key = buildEducationalImageKey(context, 900, 500);
+        const existing = pages[task.pageIndex];
+        const existingSection = existing.sectionImages?.[task.sectionIndex];
+        if (existingSection?.key === key) {
+          success += 1;
+        } else {
+          const result = await fetchVerifiedEducationalImage(context, 900, 500);
+          if (result.ok) {
+            pages[task.pageIndex] = {
+              ...existing,
+              sectionImages: {
+                ...(existing.sectionImages || {}),
+                [task.sectionIndex]: {
+                  dataUrl: result.dataUrl,
+                  key: result.key,
+                  prompt: result.prompt,
+                  mimeType: result.mimeType,
+                  width: result.width,
+                  height: result.height,
+                },
+              },
+            };
+            success += 1;
+          } else {
+            failed += 1;
+          }
+        }
       }
       completed += 1;
       active -= 1;
-      emit(index + 1);
+      emit(task.pageIndex + 1);
     }
   };
 
