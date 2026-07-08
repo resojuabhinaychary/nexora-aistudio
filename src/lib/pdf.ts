@@ -27,6 +27,12 @@ export async function exportDocToPDF(doc: GeneratedDoc): Promise<{ blob: Blob; f
   const pageImgs = doc.pages.map((p) => p.educationalImage?.dataUrl || null);
   const coverImg = pageImgs.find(Boolean) || null;
   const sectionImgMap = new Map<string, string>();
+  doc.pages.forEach((p, pIdx) => {
+    const si = p.sectionImages || {};
+    Object.entries(si).forEach(([sIdxStr, entry]) => {
+      if (entry?.dataUrl) sectionImgMap.set(`${pIdx}:${sIdxStr}`, entry.dataUrl);
+    });
+  });
 
   const imageFormat = (img: string): "PNG" | "JPEG" | "WEBP" => {
     if (img.startsWith("data:image/jpeg") || img.startsWith("data:image/jpg")) return "JPEG";
