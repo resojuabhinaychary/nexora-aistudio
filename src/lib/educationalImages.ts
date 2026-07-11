@@ -6,6 +6,7 @@ export type EducationalImageContext = {
   chapter?: string;
   topic: string;
   keywords?: string | string[];
+  variant?: string;
 };
 
 const UNAVAILABLE = "Educational image unavailable for this topic";
@@ -92,12 +93,26 @@ export function buildEducationalImagePrompt(context: EducationalImageContext) {
   const topic = clean(context.topic) || "educational topic";
   const analysis = [subject, chapter, topic, keywords].filter(Boolean).join(" | ");
   const requirements = subjectSpecificRequirements(analysis);
+  const variant = clean(context.variant);
+  const styles = [
+    "flat vector infographic, bold outlines, pastel palette",
+    "isometric 3D illustration, soft shadows, blue-teal palette",
+    "hand-drawn chalkboard sketch on white, colored accents",
+    "cross-section cutaway diagram with numbered callouts",
+    "step-by-step flowchart, arrows, minimal color blocks",
+    "annotated scientific illustration, warm accent palette",
+    "cartoon-style educational poster, playful icons, high contrast",
+  ];
+  const styleIdx = variant ? hashString(variant) % styles.length : 0;
+  const styleHint = styles[styleIdx];
 
   return [
     `Subject: ${subject}`,
     chapter ? `Chapter: ${chapter}` : "",
     `Topic: ${topic}`,
     keywords ? `Keywords: ${keywords}` : "",
+    variant ? `Unique variant: ${variant} (must differ in composition, angle, and color from other images in this document)` : "",
+    `Visual style: ${styleHint}.`,
     `Create a real topic-specific educational image: ${requirements}.`,
     "Textbook-quality labeled diagram or infographic, clear labels, arrows, captions, white classroom background, accurate educational content.",
     "No placeholder, no blank card, no dummy image, no decorative gradient, no title-page graphic, no random stock photo, no scenery, no city, no beach, no road, no building, no people, no unrelated background.",
@@ -331,6 +346,7 @@ export async function ensureDocEducationalImages(
           chapter: srcPage.title,
           topic: srcPage.imageQuery || srcPage.title,
           keywords: srcPage.sections.map((s) => s.heading).join(", "),
+          variant: `page-${task.pageIndex + 1}-cover`,
         };
         const key = buildEducationalImageKey(context, 1024, 576);
         const existing = pages[task.pageIndex];
@@ -386,6 +402,7 @@ export async function ensureDocEducationalImages(
           chapter: srcPage.title,
           topic: `${sec.heading} — ${paraSnippet}`,
           keywords: sec.heading,
+          variant: `page-${task.pageIndex + 1}-section-${task.sectionIndex + 1}`,
         };
         const key = buildEducationalImageKey(context, 900, 500);
         const existing = pages[task.pageIndex];

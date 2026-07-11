@@ -55,8 +55,9 @@ export function Canvas({
       chapter: page.subtitle,
       topic: page.imageQuery || page.title,
       keywords: page.sections.map((s) => s.heading).join(", "),
+      variant: `page-${pageIndex + 1}-cover`,
     }),
-    [page.imageQuery, page.sections, page.subtitle, page.title, subject],
+    [page.imageQuery, page.sections, page.subtitle, page.title, subject, pageIndex],
   );
   const imageKey = useMemo(() => buildEducationalImageKey(imageContext, 1024, 576), [imageContext]);
   const verifiedImage =
