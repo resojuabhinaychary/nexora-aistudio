@@ -1,6 +1,4 @@
-import { createFileRoute, Outlet, Navigate, useLocation } from "@tanstack/react-router";
-import { Loader2 } from "lucide-react";
-import { useAuth } from "@/lib/auth";
+import { createFileRoute, Outlet } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/_authenticated")({
   component: AuthGate,
