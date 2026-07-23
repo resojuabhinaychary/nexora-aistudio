@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { geminiGenerateText, requireGeminiKey } from "./gemini";
 
 const inputSchema = z.object({
   subject: z.string().min(1).max(80),
@@ -23,9 +24,7 @@ export type QuizPayload = { questions: MCQ[] };
 export const generateQuiz = createServerFn({ method: "POST" })
   .inputValidator((i: unknown) => inputSchema.parse(i))
   .handler(async ({ data }) => {
-    const apiKey = process.env.LOVABLE_API_KEY;
-    if (!apiKey) throw new Error("LOVABLE_API_KEY not configured");
-
+    const apiKey = requireGeminiKey();
     const exclude = data.exclude?.length
       ? `\nDO NOT repeat any of these previously-asked questions: ${data.exclude.map((q) => `"${q.slice(0, 120)}"`).join("; ")}.`
       : "";
@@ -44,31 +43,17 @@ Rules:
 
 Return ONLY JSON of shape: { "questions": [ { "question": string, "options": [string, string, string, string], "correctIndex": 0|1|2|3, "explanation": string, "tip": string } ] }`;
 
-    const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are Nexora AI Exam Coach. You write accurate, curriculum-aligned MCQs with rigorous explanations. Output ONLY valid JSON matching the requested schema. No markdown, no prose.",
-          },
-          { role: "user", content: userPrompt },
-        ],
-        response_format: { type: "json_object" },
-      }),
-    });
-
-    if (!res.ok) {
-      if (res.status === 429) throw new Error("Rate limit reached. Please try again in a moment.");
-      if (res.status === 402) throw new Error("AI credits exhausted. Add credits in Workspace Settings.");
-      throw new Error("AI generation failed");
-    }
-    const json = await res.json();
-    const content = json.choices?.[0]?.message?.content as string | undefined;
-    if (!content) throw new Error("Empty AI response");
+    const content = await geminiGenerateText(
+      apiKey,
+      [{ role: "user", parts: [{ text: userPrompt }] }],
+      {
+        system:
+          "You are Nexora AI Exam Coach. You write accurate, curriculum-aligned MCQs with rigorous explanations. Output ONLY valid JSON matching the requested schema. No markdown, no prose.",
+        json: true,
+        temperature: 0.6,
+        maxOutputTokens: 8192,
+      },
+    );
     let parsed: QuizPayload;
     try {
       parsed = JSON.parse(content);
