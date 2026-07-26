@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import {
+  fallbackGenerateImage,
   geminiGenerateImage,
   geminiGenerateText,
   requireGeminiKey,
@@ -188,16 +189,9 @@ export const generateEducationalImage = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => geminiImageInputSchema.parse(input))
   .handler(async ({ data }) => {
     const key = process.env.GEMINI_API_KEY;
-    if (!key) {
-      return {
-        ok: false as const,
-        error: "GEMINI_API_KEY is not configured on the server.",
-        logs: [],
-      };
-    }
     const errors: string[] = [];
     const logs: ImageRequestLog[] = [];
-    for (let attempt = 1; attempt <= MAX_IMAGE_ATTEMPTS; attempt += 1) {
+    for (let attempt = 1; key && attempt <= MAX_IMAGE_ATTEMPTS; attempt += 1) {
       const startTime = new Date();
       try {
         const result = await geminiGenerateImage(key, data.prompt, attempt - 1);
@@ -222,6 +216,27 @@ export const generateEducationalImage = createServerFn({ method: "POST" })
         errors.push(`Attempt ${attempt} threw: ${msg}`);
         if (attempt < MAX_IMAGE_ATTEMPTS) await sleep(attempt * 1200);
       }
+    }
+    if (!key) errors.push("GEMINI_API_KEY is not configured on the server.");
+
+    // Gemini image models unavailable / out of quota — use the free fallback
+    // generator so documents still receive relevant illustrations.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const startTime = new Date();
+      const fallback = await fallbackGenerateImage(data.prompt, attempt);
+      const endTime = new Date();
+      logs.push({
+        model: "flux-fallback",
+        prompt: data.prompt,
+        startTime: startTime.toISOString(),
+        endTime: endTime.toISOString(),
+        durationMs: endTime.getTime() - startTime.getTime(),
+        retryCount: attempt,
+        success: fallback.ok,
+        errorMessage: fallback.ok ? undefined : fallback.error,
+      });
+      if (fallback.ok) return { ok: true as const, dataUrl: fallback.dataUrl, logs };
+      errors.push(`Fallback attempt ${attempt + 1}: ${fallback.error}`);
     }
     return { ok: false as const, error: errors.join(" | "), logs };
   });
