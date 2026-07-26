@@ -143,3 +143,40 @@ export async function geminiGenerateImage(
   }
   return { ok: false, error: `Gemini ${model} returned no image data`, retryable: false };
 }
+
+/**
+ * Free fallback image generator (no API key). Used when the Gemini image
+ * models are unavailable or out of quota so documents still get visuals.
+ */
+export async function fallbackGenerateImage(
+  prompt: string,
+  attempt = 0,
+): Promise<{ ok: true; dataUrl: string; model: string } | { ok: false; error: string }> {
+  const seed = 1000 + attempt * 137;
+  const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(
+    prompt.slice(0, 900),
+  )}?width=1024&height=576&nologo=true&model=flux&seed=${seed}`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) {
+      return { ok: false, error: `Fallback image HTTP ${res.status}` };
+    }
+    const mimeType = res.headers.get("content-type") || "image/jpeg";
+    if (!mimeType.startsWith("image/")) {
+      return { ok: false, error: `Fallback image returned ${mimeType}` };
+    }
+    const buffer = await res.arrayBuffer();
+    if (buffer.byteLength < 1024) {
+      return { ok: false, error: "Fallback image was empty" };
+    }
+    const bytes = new Uint8Array(buffer);
+    let binary = "";
+    for (let i = 0; i < bytes.length; i += 8192) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
+    }
+    const base64 = btoa(binary);
+    return { ok: true, dataUrl: `data:${mimeType};base64,${base64}`, model: "flux-fallback" };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
