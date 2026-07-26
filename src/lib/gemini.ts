@@ -86,7 +86,7 @@ export async function geminiGenerateText(
   contents: GeminiContent[],
   options: GeminiTextOptions = {},
 ): Promise<string> {
-  const model = options.model || "gemini-2.5-flash";
+  const model = options.model || "gemini-3.6-flash";
   const body: Record<string, unknown> = {
     contents,
     generationConfig: {
@@ -119,8 +119,9 @@ export async function geminiGenerateImage(
 ): Promise<{ ok: true; dataUrl: string; model: string } | { ok: false; error: string; retryable: boolean }> {
   // Nano Banana / image-preview model. Fall back on retry.
   const models = [
-    "gemini-2.5-flash-image-preview",
-    "gemini-2.0-flash-preview-image-generation",
+    "gemini-3.1-flash-image",
+    "gemini-2.5-flash-image",
+    "gemini-3.1-flash-lite-image",
   ];
   const model = models[Math.min(attempt, models.length - 1)];
   const result = await callGemini(
