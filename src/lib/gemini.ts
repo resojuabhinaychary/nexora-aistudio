@@ -112,11 +112,23 @@ export async function geminiGenerateText(
 }
 
 /** Generate an image with Gemini image models. Returns a data URL. */
+// When the key's image quota is exhausted (HTTP 429), retrying every image is
+// pure latency. Remember it for a short cooldown and go straight to fallback.
+let imageQuotaCooldownUntil = 0;
+const IMAGE_QUOTA_COOLDOWN_MS = 5 * 60 * 1000;
+
 export async function geminiGenerateImage(
   apiKey: string,
   prompt: string,
   attempt = 0,
 ): Promise<{ ok: true; dataUrl: string; model: string } | { ok: false; error: string; retryable: boolean }> {
+  if (Date.now() < imageQuotaCooldownUntil) {
+    return {
+      ok: false,
+      error: "Gemini image quota exhausted (cooling down) — using fallback generator.",
+      retryable: false,
+    };
+  }
   // Nano Banana / image-preview model. Fall back on retry.
   const models = [
     "gemini-3.1-flash-image",
@@ -133,7 +145,13 @@ export async function geminiGenerateImage(
     },
     1,
   );
-  if (!result.ok) return { ok: false, error: result.error, retryable: result.retryable };
+  if (!result.ok) {
+    if (result.status === 429) {
+      imageQuotaCooldownUntil = Date.now() + IMAGE_QUOTA_COOLDOWN_MS;
+      return { ok: false, error: result.error, retryable: false };
+    }
+    return { ok: false, error: result.error, retryable: result.retryable };
+  }
   const parts: any[] = result.json?.candidates?.[0]?.content?.parts || [];
   for (const p of parts) {
     const inline = p?.inlineData || p?.inline_data;
@@ -157,7 +175,7 @@ export async function fallbackGenerateImage(
     prompt.slice(0, 900),
   )}?width=1024&height=576&nologo=true&model=flux&seed=${seed}`;
   try {
-    const res = await fetch(url);
+    const res = await fetch(url, { signal: AbortSignal.timeout(30000) });
     if (!res.ok) {
       return { ok: false, error: `Fallback image HTTP ${res.status}` };
     }

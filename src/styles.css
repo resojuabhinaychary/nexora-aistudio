@@ -110,6 +110,22 @@
 }
 .dark h1, .dark h2, .dark h3, .dark h4, .dark h5 { color: oklch(0.98 0.01 240); }
 .dark .text-ink { color: oklch(0.98 0.01 240); }
+/* Surfaces authored with literal white must follow the dark theme too. */
+.dark [class*="bg-white"] { background-color: var(--card) !important; }
+.dark [class*="bg-white/"] { background-color: color-mix(in oklab, var(--card) 80%, transparent) !important; }
+.dark [class*="bg-slate-50"],
+.dark [class*="bg-gray-50"] { background-color: var(--muted) !important; }
+/* Pastel hero gradients must darken so white heading text stays readable. */
+.dark {
+  --gradient-sky: linear-gradient(135deg, oklch(0.32 0.08 230) 0%, oklch(0.28 0.08 200) 100%);
+  --gradient-lavender: linear-gradient(135deg, oklch(0.32 0.08 290) 0%, oklch(0.28 0.08 270) 100%);
+  --gradient-mint: linear-gradient(135deg, oklch(0.31 0.07 170) 0%, oklch(0.28 0.08 160) 100%);
+  --gradient-peach: linear-gradient(135deg, oklch(0.33 0.07 60) 0%, oklch(0.29 0.08 45) 100%);
+}
+.dark .prose-chat strong { color: oklch(0.98 0.01 240); }
+.dark .prose-chat code { background: var(--muted); color: oklch(0.95 0.01 240); }
+.dark .gradient-aurora [class*="text-white"],
+.dark button [class*="text-white"] { color: #fff; }
 
 @layer base {
   * { border-color: var(--color-border); }

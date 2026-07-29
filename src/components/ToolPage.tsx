@@ -4,9 +4,13 @@ import { useServerFn } from "@tanstack/react-start";
 import { motion } from "framer-motion";
 import { Toaster, toast } from "sonner";
 import ReactMarkdown from "react-markdown";
-import { ArrowLeft, Library, Loader2, Send, Camera, ImagePlus, X, Sparkles } from "lucide-react";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import "katex/dist/katex.min.css";
+import { ArrowLeft, Library, Loader2, Send, Camera, ImagePlus, X, Sparkles, Moon, Sun } from "lucide-react";
 import { AnimatedBackground } from "@/components/AnimatedBackground";
 import { Logo } from "@/components/Logo";
+import { useTheme } from "@/lib/theme";
 import { explainConcept, generateContent } from "@/lib/ai.functions";
 import { createProject } from "@/lib/projects";
 
@@ -82,6 +86,7 @@ export function ToolPage({ mode }: { mode: Mode }) {
   const [answer, setAnswer] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
+  const { theme, toggle } = useTheme();
 
   const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -127,9 +132,19 @@ export function ToolPage({ mode }: { mode: Mode }) {
           </Link>
           <Logo />
         </div>
-        <Link to="/dashboard" className="inline-flex items-center gap-1.5 rounded-full border border-border bg-white/80 px-3.5 py-2 text-xs font-bold text-ink backdrop-blur transition hover:border-primary/40">
-          <Library className="h-3.5 w-3.5" /> Library
-        </Link>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={toggle}
+            title="Toggle theme"
+            aria-label="Toggle theme"
+            className="grid h-9 w-9 place-items-center rounded-full border border-border bg-white/80 text-ink backdrop-blur transition hover:border-primary/40"
+          >
+            {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+          </button>
+          <Link to="/dashboard" className="inline-flex items-center gap-1.5 rounded-full border border-border bg-white/80 px-3.5 py-2 text-xs font-bold text-ink backdrop-blur transition hover:border-primary/40">
+            <Library className="h-3.5 w-3.5" /> Library
+          </Link>
+        </div>
       </header>
 
       <main className="mx-auto w-full max-w-3xl px-5 pb-32">
@@ -212,7 +227,9 @@ export function ToolPage({ mode }: { mode: Mode }) {
             animate={{ opacity: 1, y: 0 }}
             className="prose-chat mt-6 rounded-3xl border border-border bg-white p-6 shadow-card"
           >
-            <ReactMarkdown>{answer}</ReactMarkdown>
+            <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+              {answer}
+            </ReactMarkdown>
           </motion.div>
         )}
       </main>

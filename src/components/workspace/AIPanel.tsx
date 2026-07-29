@@ -3,6 +3,9 @@ import { useServerFn } from "@tanstack/react-start";
 import { Loader2, Send, Sparkles, Wand2, FileType2, ScrollText, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import "katex/dist/katex.min.css";
 import { explainConcept } from "@/lib/ai.functions";
 import { toast } from "sonner";
 
@@ -91,7 +94,9 @@ export function AIPanel({
           </div>
           {answer && (
             <div className="prose-chat mt-3 max-h-[55vh] overflow-y-auto rounded-2xl border border-border bg-secondary/50 p-3 text-[13px] text-ink scrollbar-thin">
-              <ReactMarkdown>{answer}</ReactMarkdown>
+              <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+                {answer}
+              </ReactMarkdown>
             </div>
           )}
         </motion.aside>
