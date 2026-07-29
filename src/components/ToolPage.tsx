@@ -4,6 +4,9 @@ import { useServerFn } from "@tanstack/react-start";
 import { motion } from "framer-motion";
 import { Toaster, toast } from "sonner";
 import ReactMarkdown from "react-markdown";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import "katex/dist/katex.min.css";
 import { ArrowLeft, Library, Loader2, Send, Camera, ImagePlus, X, Sparkles } from "lucide-react";
 import { AnimatedBackground } from "@/components/AnimatedBackground";
 import { Logo } from "@/components/Logo";
@@ -212,7 +215,9 @@ export function ToolPage({ mode }: { mode: Mode }) {
             animate={{ opacity: 1, y: 0 }}
             className="prose-chat mt-6 rounded-3xl border border-border bg-white p-6 shadow-card"
           >
-            <ReactMarkdown>{answer}</ReactMarkdown>
+            <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+              {answer}
+            </ReactMarkdown>
           </motion.div>
         )}
       </main>
