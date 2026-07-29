@@ -110,6 +110,13 @@
 }
 .dark h1, .dark h2, .dark h3, .dark h4, .dark h5 { color: oklch(0.98 0.01 240); }
 .dark .text-ink { color: oklch(0.98 0.01 240); }
+/* Surfaces authored with literal white must follow the dark theme too. */
+.dark [class*="bg-white"] { background-color: var(--card) !important; }
+.dark [class*="bg-white/"] { background-color: color-mix(in oklab, var(--card) 80%, transparent) !important; }
+.dark [class*="bg-slate-50"],
+.dark [class*="bg-gray-50"] { background-color: var(--muted) !important; }
+.dark .gradient-aurora [class*="text-white"],
+.dark button [class*="text-white"] { color: #fff; }
 
 @layer base {
   * { border-color: var(--color-border); }
