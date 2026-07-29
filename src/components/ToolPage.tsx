@@ -7,9 +7,10 @@ import ReactMarkdown from "react-markdown";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
-import { ArrowLeft, Library, Loader2, Send, Camera, ImagePlus, X, Sparkles } from "lucide-react";
+import { ArrowLeft, Library, Loader2, Send, Camera, ImagePlus, X, Sparkles, Moon, Sun } from "lucide-react";
 import { AnimatedBackground } from "@/components/AnimatedBackground";
 import { Logo } from "@/components/Logo";
+import { useTheme } from "@/lib/theme";
 import { explainConcept, generateContent } from "@/lib/ai.functions";
 import { createProject } from "@/lib/projects";
 
@@ -130,9 +131,19 @@ export function ToolPage({ mode }: { mode: Mode }) {
           </Link>
           <Logo />
         </div>
-        <Link to="/dashboard" className="inline-flex items-center gap-1.5 rounded-full border border-border bg-white/80 px-3.5 py-2 text-xs font-bold text-ink backdrop-blur transition hover:border-primary/40">
-          <Library className="h-3.5 w-3.5" /> Library
-        </Link>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={toggle}
+            title="Toggle theme"
+            aria-label="Toggle theme"
+            className="grid h-9 w-9 place-items-center rounded-full border border-border bg-white/80 text-ink backdrop-blur transition hover:border-primary/40"
+          >
+            {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+          </button>
+          <Link to="/dashboard" className="inline-flex items-center gap-1.5 rounded-full border border-border bg-white/80 px-3.5 py-2 text-xs font-bold text-ink backdrop-blur transition hover:border-primary/40">
+            <Library className="h-3.5 w-3.5" /> Library
+          </Link>
+        </div>
       </header>
 
       <main className="mx-auto w-full max-w-3xl px-5 pb-32">
