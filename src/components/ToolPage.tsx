@@ -86,6 +86,7 @@ export function ToolPage({ mode }: { mode: Mode }) {
   const [answer, setAnswer] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
+  const { theme, toggle } = useTheme();
 
   const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
