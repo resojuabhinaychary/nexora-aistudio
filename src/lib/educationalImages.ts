@@ -10,8 +10,10 @@ export type EducationalImageContext = {
 };
 
 const UNAVAILABLE = "Educational image unavailable for this topic";
-const MAX_CONCURRENT_IMAGE_REQUESTS = 6;
-const SERVER_FUNCTION_TIMEOUT_MS = 100_000;
+const MAX_CONCURRENT_IMAGE_REQUESTS = 8;
+const SERVER_FUNCTION_TIMEOUT_MS = 60_000;
+const PERSIST_KEY = "nexora.imgcache.v2";
+const PERSIST_LIMIT = 36;
 
 type CachedImage = {
   dataUrl: string;
@@ -26,6 +28,46 @@ type CachedImage = {
 
 const successfulImageCache = new Map<string, CachedImage>();
 const inFlightImageCache = new Map<string, Promise<EducationalImageResult>>();
+
+// ---------------------------------------------------------------------------
+// Persistent (cross-session) image cache. Keeps regenerated documents instant
+// and guarantees the PDF reuses exactly the bytes the preview showed.
+// ---------------------------------------------------------------------------
+let persistLoaded = false;
+
+function loadPersistentCache() {
+  if (persistLoaded || typeof localStorage === "undefined") return;
+  persistLoaded = true;
+  try {
+    const raw = localStorage.getItem(PERSIST_KEY);
+    if (!raw) return;
+    const entries = JSON.parse(raw) as [string, CachedImage][];
+    for (const [k, v] of entries) {
+      if (v?.dataUrl) successfulImageCache.set(k, v);
+    }
+  } catch {
+    /* corrupt cache — ignore */
+  }
+}
+
+function persistCache() {
+  if (typeof localStorage === "undefined") return;
+  try {
+    const entries = Array.from(successfulImageCache.entries())
+      .slice(-PERSIST_LIMIT)
+      .map(([k, v]) => [k, { key: v.key, prompt: v.prompt, dataUrl: v.dataUrl, mimeType: v.mimeType, width: v.width, height: v.height }] as [string, CachedImage]);
+    localStorage.setItem(PERSIST_KEY, JSON.stringify(entries));
+  } catch {
+    // Quota exceeded — drop the oldest half and retry once.
+    try {
+      const keys = Array.from(successfulImageCache.keys());
+      keys.slice(0, Math.floor(keys.length / 2)).forEach((k) => successfulImageCache.delete(k));
+      localStorage.removeItem(PERSIST_KEY);
+    } catch {
+      /* ignore */
+    }
+  }
+}
 
 export type ImageGenerationProgress = {
   completed: number;
