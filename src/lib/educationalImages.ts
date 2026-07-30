@@ -286,6 +286,7 @@ export async function fetchVerifiedEducationalImage(
 ): Promise<EducationalImageResult> {
   const prompt = buildEducationalImagePrompt(context);
   const key = buildEducationalImageKey(context, w, h);
+  loadPersistentCache();
   const cached = successfulImageCache.get(key);
   if (cached) return { ok: true, ...cached };
   const inFlight = inFlightImageCache.get(key);
@@ -315,6 +316,7 @@ export async function fetchVerifiedEducationalImage(
       }
       const success: CachedImage = { key, prompt, logs: result.logs, ...verified };
       successfulImageCache.set(key, success);
+      persistCache();
       return { ok: true, ...success };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -332,18 +334,22 @@ export async function ensureDocEducationalImages(
   doc: GeneratedDoc,
   options: {
     concurrency?: number;
+    format?: "notes" | "presentation" | "pdf";
     onProgress?: (progress: ImageGenerationProgress) => void;
   } = {},
 ): Promise<GeneratedDoc> {
   const pages: GeneratedDoc["pages"] = doc.pages.map((p) => ({ ...p }));
-  // Build a flat task list: 1 cover per page + 1 image per section (max 3 per page).
+  // Image density is format-specific: notes stay light and fast, slides get one
+  // diagram per idea, booklets get rich per-section illustration.
+  const format = options.format || doc.format || "pdf";
+  const sectionsPerPage = format === "notes" ? 1 : format === "presentation" ? 1 : 3;
   type Task =
     | { kind: "page"; pageIndex: number }
     | { kind: "section"; pageIndex: number; sectionIndex: number };
   const tasks: Task[] = [];
   doc.pages.forEach((page, pageIndex) => {
     tasks.push({ kind: "page", pageIndex });
-    const sectionCount = Math.min(3, page.sections.length);
+    const sectionCount = Math.min(sectionsPerPage, page.sections.length);
     for (let s = 0; s < sectionCount; s += 1) {
       tasks.push({ kind: "section", pageIndex, sectionIndex: s });
     }
@@ -367,7 +373,9 @@ export async function ensureDocEducationalImages(
       success,
       failed,
       currentPage,
-      message: total ? `Generating image ${Math.min(completed + active, total)}/${total}` : "No images required",
+      message: total
+        ? `Generating educational images — ${Math.round((completed / total) * 100)}% (${completed}/${total})`
+        : "No images required",
     });
   };
 
