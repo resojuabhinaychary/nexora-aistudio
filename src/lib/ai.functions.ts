@@ -244,7 +244,10 @@ const geminiImageInputSchema = z.object({
   prompt: z.string().min(4).max(4000),
 });
 
-const MAX_IMAGE_ATTEMPTS = 3;
+// Gemini image models are usually quota-limited for student keys; one probe is
+// enough before switching to the always-available fallback generator.
+const MAX_IMAGE_ATTEMPTS = 1;
+const MAX_FALLBACK_ATTEMPTS = 3;
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -286,7 +289,7 @@ export const generateEducationalImage = createServerFn({ method: "POST" })
 
     // Gemini image models unavailable / out of quota — use the free fallback
     // generator so documents still receive relevant illustrations.
-    for (let attempt = 0; attempt < 2; attempt += 1) {
+    for (let attempt = 0; attempt < MAX_FALLBACK_ATTEMPTS; attempt += 1) {
       const startTime = new Date();
       const fallback = await fallbackGenerateImage(data.prompt, attempt);
       const endTime = new Date();
