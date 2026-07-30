@@ -10,8 +10,10 @@ export type EducationalImageContext = {
 };
 
 const UNAVAILABLE = "Educational image unavailable for this topic";
-const MAX_CONCURRENT_IMAGE_REQUESTS = 6;
-const SERVER_FUNCTION_TIMEOUT_MS = 100_000;
+const MAX_CONCURRENT_IMAGE_REQUESTS = 8;
+const SERVER_FUNCTION_TIMEOUT_MS = 60_000;
+const PERSIST_KEY = "nexora.imgcache.v2";
+const PERSIST_LIMIT = 36;
 
 type CachedImage = {
   dataUrl: string;
@@ -26,6 +28,46 @@ type CachedImage = {
 
 const successfulImageCache = new Map<string, CachedImage>();
 const inFlightImageCache = new Map<string, Promise<EducationalImageResult>>();
+
+// ---------------------------------------------------------------------------
+// Persistent (cross-session) image cache. Keeps regenerated documents instant
+// and guarantees the PDF reuses exactly the bytes the preview showed.
+// ---------------------------------------------------------------------------
+let persistLoaded = false;
+
+function loadPersistentCache() {
+  if (persistLoaded || typeof localStorage === "undefined") return;
+  persistLoaded = true;
+  try {
+    const raw = localStorage.getItem(PERSIST_KEY);
+    if (!raw) return;
+    const entries = JSON.parse(raw) as [string, CachedImage][];
+    for (const [k, v] of entries) {
+      if (v?.dataUrl) successfulImageCache.set(k, v);
+    }
+  } catch {
+    /* corrupt cache — ignore */
+  }
+}
+
+function persistCache() {
+  if (typeof localStorage === "undefined") return;
+  try {
+    const entries = Array.from(successfulImageCache.entries())
+      .slice(-PERSIST_LIMIT)
+      .map(([k, v]) => [k, { key: v.key, prompt: v.prompt, dataUrl: v.dataUrl, mimeType: v.mimeType, width: v.width, height: v.height }] as [string, CachedImage]);
+    localStorage.setItem(PERSIST_KEY, JSON.stringify(entries));
+  } catch {
+    // Quota exceeded — drop the oldest half and retry once.
+    try {
+      const keys = Array.from(successfulImageCache.keys());
+      keys.slice(0, Math.floor(keys.length / 2)).forEach((k) => successfulImageCache.delete(k));
+      localStorage.removeItem(PERSIST_KEY);
+    } catch {
+      /* ignore */
+    }
+  }
+}
 
 export type ImageGenerationProgress = {
   completed: number;
@@ -244,6 +286,7 @@ export async function fetchVerifiedEducationalImage(
 ): Promise<EducationalImageResult> {
   const prompt = buildEducationalImagePrompt(context);
   const key = buildEducationalImageKey(context, w, h);
+  loadPersistentCache();
   const cached = successfulImageCache.get(key);
   if (cached) return { ok: true, ...cached };
   const inFlight = inFlightImageCache.get(key);
@@ -273,6 +316,7 @@ export async function fetchVerifiedEducationalImage(
       }
       const success: CachedImage = { key, prompt, logs: result.logs, ...verified };
       successfulImageCache.set(key, success);
+      persistCache();
       return { ok: true, ...success };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -290,18 +334,22 @@ export async function ensureDocEducationalImages(
   doc: GeneratedDoc,
   options: {
     concurrency?: number;
+    format?: "notes" | "presentation" | "pdf";
     onProgress?: (progress: ImageGenerationProgress) => void;
   } = {},
 ): Promise<GeneratedDoc> {
   const pages: GeneratedDoc["pages"] = doc.pages.map((p) => ({ ...p }));
-  // Build a flat task list: 1 cover per page + 1 image per section (max 3 per page).
+  // Image density is format-specific: notes stay light and fast, slides get one
+  // diagram per idea, booklets get rich per-section illustration.
+  const format = options.format || doc.format || "pdf";
+  const sectionsPerPage = format === "notes" ? 1 : format === "presentation" ? 1 : 3;
   type Task =
     | { kind: "page"; pageIndex: number }
     | { kind: "section"; pageIndex: number; sectionIndex: number };
   const tasks: Task[] = [];
   doc.pages.forEach((page, pageIndex) => {
     tasks.push({ kind: "page", pageIndex });
-    const sectionCount = Math.min(3, page.sections.length);
+    const sectionCount = Math.min(sectionsPerPage, page.sections.length);
     for (let s = 0; s < sectionCount; s += 1) {
       tasks.push({ kind: "section", pageIndex, sectionIndex: s });
     }
@@ -325,7 +373,9 @@ export async function ensureDocEducationalImages(
       success,
       failed,
       currentPage,
-      message: total ? `Generating image ${Math.min(completed + active, total)}/${total}` : "No images required",
+      message: total
+        ? `Generating educational images — ${Math.round((completed / total) * 100)}% (${completed}/${total})`
+        : "No images required",
     });
   };
 

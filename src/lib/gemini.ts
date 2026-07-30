@@ -171,11 +171,14 @@ export async function fallbackGenerateImage(
   attempt = 0,
 ): Promise<{ ok: true; dataUrl: string; model: string } | { ok: false; error: string }> {
   const seed = 1000 + attempt * 137;
+  // attempt 0 → flux (best quality). attempt 1+ → turbo (much faster) so a
+  // slow/failed first try never blocks the document.
+  const model = attempt === 0 ? "flux" : "turbo";
   const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(
-    prompt.slice(0, 900),
-  )}?width=1024&height=576&nologo=true&model=flux&seed=${seed}`;
+    prompt.slice(0, 700),
+  )}?width=832&height=468&nologo=true&enhance=false&safe=false&model=${model}&seed=${seed}`;
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(30000) });
+    const res = await fetch(url, { signal: AbortSignal.timeout(attempt === 0 ? 22000 : 15000) });
     if (!res.ok) {
       return { ok: false, error: `Fallback image HTTP ${res.status}` };
     }
@@ -193,7 +196,7 @@ export async function fallbackGenerateImage(
       binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
     }
     const base64 = btoa(binary);
-    return { ok: true, dataUrl: `data:${mimeType};base64,${base64}`, model: "flux-fallback" };
+    return { ok: true, dataUrl: `data:${mimeType};base64,${base64}`, model: `${model}-fallback` };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }

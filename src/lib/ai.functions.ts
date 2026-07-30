@@ -18,6 +18,8 @@ export type GeneratedSection = {
   heading: string;
   paragraph?: string;
   bullets?: string[];
+  /** Optional simple table rendered in preview + PDF. First row = header. */
+  table?: { caption?: string; rows: string[][] };
 };
 
 export type GeneratedPage = {
@@ -25,6 +27,14 @@ export type GeneratedPage = {
   subtitle?: string;
   sections: GeneratedSection[];
   imageQuery?: string;
+  /** Presentation only — what the presenter says on this slide. */
+  speakerNotes?: string;
+  /** PDF booklet only — practice items at the end of a chapter page. */
+  practice?: {
+    mcqs?: { question: string; options: string[]; answer: string }[];
+    trueFalse?: { statement: string; answer: string }[];
+    fillBlanks?: { sentence: string; answer: string }[];
+  };
   educationalImage?: {
     dataUrl: string;
     key: string;
@@ -71,9 +81,13 @@ export type GeneratedDoc = {
   keyQuestions: string[];
   keyConcepts: string[];
   coverImageQuery?: string;
+  format?: "notes" | "presentation" | "pdf";
+  /** PDF booklet only. */
+  glossary?: { term: string; definition: string }[];
+  references?: string[];
 };
 
-const systemPrompt = `You are Nexora AI, a master educator and exam coach. Produce DEEP, COMPREHENSIVE, textbook-quality study material that goes far beyond surface-level summaries — include definitions, derivations, mechanisms, formulas, worked examples, real-world applications, common misconceptions, and exam tips. Write in clear simple language a student can understand, but never skimp on depth. Output ONLY valid JSON matching the requested schema. No prose, no markdown.`;
+const systemPrompt = `You are Nexora AI, a master educator and exam coach. Produce accurate, well-structured, curriculum-grade educational material. Never output placeholders, "TBD", "lorem ipsum", empty strings, or incomplete sentences. Every field you emit must be finished, factually correct content. Adapt the SHAPE of your output strictly to the requested format — notes, presentation and booklet outputs must look and read completely differently. Output ONLY valid JSON matching the requested schema. No prose, no markdown fences.`;
 
 function dataUrlToInlinePart(dataUrl: string) {
   const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
@@ -82,30 +96,65 @@ function dataUrlToInlinePart(dataUrl: string) {
 }
 
 function buildUserPrompt(topic: string, format: string) {
-  const count =
-    format === "presentation"
-      ? "8 to 10 slide-style pages"
-      : format === "pdf"
-        ? "8 to 12 deeply detailed pages"
-        : "6 to 8 rich pages";
-  const depth =
-    format === "pdf"
-      ? "Treat this as a printable study booklet. Cover the topic exhaustively: history/context, key definitions, all sub-concepts, formulas with derivations, multiple worked examples (with step-by-step solutions), diagrams to imagine, applications, FAQs, common mistakes, and revision points."
-      : "Cover the topic thoroughly with definitions, mechanisms, examples, applications, and exam tips.";
-  return `Topic / request: "${topic}"
-Format: ${format}
-${depth}
-Generate ${count}. Each page MUST contain rich, in-depth educational content (no placeholders, no fluff). Use clear headings, well-written paragraphs (3-6 sentences each) AND bullet points with concrete examples. Include a title page, introduction, multiple core-concept pages, worked examples, applications, summary, key questions, and key concepts. For EVERY page, add a precise, topic-specific "imageQuery" (4-7 words) describing the single most relevant educational illustration — be SPECIFIC to the page's content (e.g. "labeled diagram chloroplast photosynthesis", "newton second law free body diagram", "DNA double helix base pairing"). Also include a top-level "coverImageQuery" for the title page hero illustration that visually represents the overall topic.
-Return JSON of shape:
-{
-  "title": string,
-  "subject": string,
-  "summary": string (2-3 sentences),
-  "coverImageQuery": string,
-  "pages": [ { "title": string, "subtitle"?: string, "imageQuery": string, "sections": [ { "heading": string, "paragraph"?: string, "bullets"?: string[] } ] } ],
-  "keyQuestions": string[] (5-8 exam-style questions),
-  "keyConcepts": string[] (6-10 short concept names)
-}`;
+  const common = `Topic / request: "${topic}"
+
+IMAGE QUERIES — for every page set "imageQuery" to a precise 4-8 word description of the single most useful EDUCATIONAL diagram for that page's exact content (e.g. "labeled chloroplast diagram light reactions", "free body diagram inclined plane friction", "benzene ring resonance structure", "binary search flowchart", "map of indian monsoon winds"). Never a generic scene, never a stock photo idea, never decorative. Also set a top-level "coverImageQuery" for the topic as a whole.
+All content must be complete and factually accurate. No placeholders.`;
+
+  if (format === "notes") {
+    return `${common}
+
+FORMAT: REVISION NOTES (for quick study before an exam).
+Style rules — these make notes DIFFERENT from slides and booklets:
+- 6 to 8 compact pages. Scannable, bullet-dominant, short.
+- Each page: 3-5 sections. Sections are mostly BULLETS (4-7 crisp bullets each). Paragraphs are optional and never longer than 2 sentences.
+- Must include, spread across pages: "Definitions" section, "Key Formulas" section (write formulas plainly, e.g. F = ma), "Memory Tricks / Mnemonics" section, "Quick Revision" section, and a final "Summary" page.
+- No speaker notes, no practice questions, no tables of contents, no long prose.
+
+Return JSON:
+{"title":string,"subject":string,"summary":string,"coverImageQuery":string,
+ "pages":[{"title":string,"subtitle"?:string,"imageQuery":string,
+   "sections":[{"heading":string,"paragraph"?:string,"bullets":string[]}]}],
+ "keyQuestions":string[],"keyConcepts":string[]}`;
+  }
+
+  if (format === "presentation") {
+    return `${common}
+
+FORMAT: CLASSROOM SLIDE DECK (like a professional PowerPoint).
+Style rules — these make slides DIFFERENT from notes and booklets:
+- 10 to 12 slides. ONE idea per slide. Very little text on the slide itself.
+- Slide 1 = title slide (short punchy title + subtitle, ONE section with a 1-2 sentence hook).
+- Slide 2 = "Agenda" (bullets only, one per upcoming slide).
+- Content slides: exactly 1 section each, heading = a large statement, 3-5 SHORT bullets (max 10 words each). Paragraph must be absent or a single short line.
+- Last two slides = "Key Takeaways" and "Thank You / Questions".
+- EVERY slide MUST include "speakerNotes": 3-5 sentences the teacher says aloud, containing the depth that is deliberately kept off the slide.
+- No practice questions, no glossary, no dense paragraphs.
+
+Return JSON:
+{"title":string,"subject":string,"summary":string,"coverImageQuery":string,
+ "pages":[{"title":string,"subtitle"?:string,"imageQuery":string,"speakerNotes":string,
+   "sections":[{"heading":string,"paragraph"?:string,"bullets":string[]}]}],
+ "keyQuestions":string[],"keyConcepts":string[]}`;
+  }
+
+  return `${common}
+
+FORMAT: PRINTABLE STUDY BOOKLET (a professional textbook chapter set).
+Style rules — these make the booklet DIFFERENT from notes and slides:
+- 9 to 12 chapter pages, each genuinely detailed.
+- Each page: 3-5 sections with FULL paragraphs of 4-7 sentences PLUS supporting bullets. Cover context/history, definitions, mechanisms, derivations, formulas, worked examples with step-by-step solutions, applications, and common mistakes.
+- Include at least 3 sections across the booklet that carry a "table" (comparison / data / properties). A table is {"caption":string,"rows":[[header cells...],[row cells...]]} with 2-4 columns and 3-6 rows.
+- At least half the pages must include a "practice" object with 2 "mcqs" (4 options + answer), 2 "trueFalse", and 2 "fillBlanks".
+- Also return a top-level "glossary" (8-12 term/definition pairs) and "references" (4-6 realistic textbook/source citations).
+
+Return JSON:
+{"title":string,"subject":string,"summary":string,"coverImageQuery":string,
+ "pages":[{"title":string,"subtitle"?:string,"imageQuery":string,
+   "sections":[{"heading":string,"paragraph":string,"bullets"?:string[],"table"?:{"caption":string,"rows":string[][]}}],
+   "practice"?:{"mcqs":[{"question":string,"options":string[],"answer":string}],"trueFalse":[{"statement":string,"answer":string}],"fillBlanks":[{"sentence":string,"answer":string}]}}],
+ "keyQuestions":string[],"keyConcepts":string[],
+ "glossary":[{"term":string,"definition":string}],"references":string[]}`;
 }
 
 export const generateContent = createServerFn({ method: "POST" })
@@ -120,7 +169,12 @@ export const generateContent = createServerFn({ method: "POST" })
     const content = await geminiGenerateText(
       apiKey,
       [{ role: "user", parts }],
-      { system: systemPrompt, json: true, temperature: 0.7, maxOutputTokens: 8192 },
+      {
+        system: systemPrompt,
+        json: true,
+        temperature: data.format === "pdf" ? 0.6 : 0.75,
+        maxOutputTokens: data.format === "pdf" ? 16384 : 8192,
+      },
     );
     let parsed: GeneratedDoc;
     try {
@@ -132,6 +186,17 @@ export const generateContent = createServerFn({ method: "POST" })
     if (!parsed.pages || !Array.isArray(parsed.pages) || parsed.pages.length === 0) {
       throw new Error("AI produced no pages");
     }
+    // Validation: drop empty sections/pages so nothing renders as a placeholder.
+    parsed.format = data.format;
+    parsed.pages = parsed.pages
+      .map((p) => ({
+        ...p,
+        sections: (p.sections || []).filter(
+          (s) => s && s.heading && (s.paragraph?.trim() || s.bullets?.length || s.table?.rows?.length),
+        ),
+      }))
+      .filter((p) => p.title && p.sections.length > 0);
+    if (parsed.pages.length === 0) throw new Error("AI produced no usable pages");
     return parsed;
   });
 
@@ -179,7 +244,10 @@ const geminiImageInputSchema = z.object({
   prompt: z.string().min(4).max(4000),
 });
 
-const MAX_IMAGE_ATTEMPTS = 3;
+// Gemini image models are usually quota-limited for student keys; one probe is
+// enough before switching to the always-available fallback generator.
+const MAX_IMAGE_ATTEMPTS = 1;
+const MAX_FALLBACK_ATTEMPTS = 3;
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -221,7 +289,7 @@ export const generateEducationalImage = createServerFn({ method: "POST" })
 
     // Gemini image models unavailable / out of quota — use the free fallback
     // generator so documents still receive relevant illustrations.
-    for (let attempt = 0; attempt < 2; attempt += 1) {
+    for (let attempt = 0; attempt < MAX_FALLBACK_ATTEMPTS; attempt += 1) {
       const startTime = new Date();
       const fallback = await fallbackGenerateImage(data.prompt, attempt);
       const endTime = new Date();
