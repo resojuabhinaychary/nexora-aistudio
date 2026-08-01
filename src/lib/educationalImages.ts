@@ -365,8 +365,10 @@ export async function ensureDocEducationalImages(
     | { kind: "page"; pageIndex: number }
     | { kind: "section"; pageIndex: number; sectionIndex: number };
   const tasks: Task[] = [];
+  // Cover images for the earliest pages first, then per-section diagrams, so a
+  // capped budget still spreads illustrations across the whole document.
+  doc.pages.forEach((_page, pageIndex) => tasks.push({ kind: "page", pageIndex }));
   doc.pages.forEach((page, pageIndex) => {
-    tasks.push({ kind: "page", pageIndex });
     const sectionCount = Math.min(sectionsPerPage, page.sections.length);
     for (let s = 0; s < sectionCount; s += 1) {
       tasks.push({ kind: "section", pageIndex, sectionIndex: s });
