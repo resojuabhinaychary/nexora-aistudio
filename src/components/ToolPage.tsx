@@ -109,10 +109,12 @@ export function ToolPage({ mode }: { mode: Mode }) {
     try {
       if (mode === "doubt") {
         const r = await ask({ data: { question: t || "Read the question in the image and solve it step by step.", imageBase64: image } });
+        if (r.providerNotice) toast.message(r.providerNotice);
         setAnswer(r.answer);
       } else {
         toast.loading(`Generating your ${mode}…`, { id: "gen" });
         const doc = await gen({ data: { topic: t || "Explain the uploaded content", format: mode, grade, imageBase64: image } });
+        if (doc.providerNotice) toast.message(doc.providerNotice);
         const p = createProject({ topic: t || doc.title, format: mode, doc });
         toast.success("Ready!", { id: "gen" });
         navigate({ to: "/workspace/$id", params: { id: p.id } });
