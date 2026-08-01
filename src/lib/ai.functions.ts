@@ -231,25 +231,15 @@ export const explainConcept = createServerFn({ method: "POST" })
   });
 
 // ============================================================================
-// Educational image generation via the Google Gemini API directly.
-// Uses GEMINI_API_KEY to call Gemini image models
-// (https://generativelanguage.googleapis.com/v1beta).
-// Retries up to 3 times. Returns either a base64 PNG data URL or a detailed
-// error string so the UI can show the real cause.
+// Educational image generation with automatic provider fallback
+// (Lovable AI Gateway -> Gemini -> free generator). Returns either a base64
+// data URL or a detailed error plus a `retryable` flag so the client-side
+// queue can apply exponential backoff.
 // ============================================================================
 
 const geminiImageInputSchema = z.object({
   prompt: z.string().min(4).max(4000),
 });
-
-// Gemini image models are usually quota-limited for student keys; one probe is
-// enough before switching to the always-available fallback generator.
-const MAX_IMAGE_ATTEMPTS = 1;
-const MAX_FALLBACK_ATTEMPTS = 3;
-
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 export const generateEducationalImage = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => geminiImageInputSchema.parse(input))
