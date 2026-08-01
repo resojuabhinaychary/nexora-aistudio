@@ -222,7 +222,11 @@ export async function exportDocToPDF(doc: GeneratedDoc): Promise<{ blob: Blob; f
   pdf.setFont("helvetica", "normal");
   pdf.setFontSize(14);
   pdf.setTextColor(80, 95, 140);
-  pdf.text(doc.subject || "Study Material", margin, 320 + titleLines.length * 34 + 8);
+  pdf.text(
+    [doc.subject || "Study Material", doc.grade].filter(Boolean).join("  ·  "),
+    margin,
+    320 + titleLines.length * 34 + 8,
+  );
   pdf.setFontSize(11);
   pdf.setTextColor(95, 105, 130);
   const summary = pdf.splitTextToSize(doc.summary || "", contentW);
@@ -230,6 +234,31 @@ export async function exportDocToPDF(doc: GeneratedDoc): Promise<{ blob: Blob; f
   pdf.setFontSize(9);
   pdf.setTextColor(140, 150, 170);
   pdf.text("Generated with Nexora AI · nexora.ai", margin, pageH - 30);
+
+  // ===== Table of contents =====
+  {
+    let ty = newPage(doc.subject || "");
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(22);
+    pdf.setTextColor(20, 25, 50);
+    pdf.text("Table of Contents", margin, ty + 10);
+    ty += 34;
+    pdf.setFontSize(11);
+    doc.pages.forEach((page, i) => {
+      if (ty > pageH - 70) ty = newPage(doc.subject || "");
+      pdf.setFont("helvetica", "bold");
+      pdf.setTextColor(70, 90, 200);
+      pdf.text(`${i + 1}.`, margin, ty);
+      pdf.setFont("helvetica", "normal");
+      pdf.setTextColor(40, 45, 65);
+      const line = pdf.splitTextToSize(page.title, contentW - 70);
+      pdf.text(line, margin + 22, ty);
+      pdf.setTextColor(150, 160, 180);
+      pdf.text(String(i + 3), pageW - margin, ty, { align: "right" });
+      ty += line.length * 14 + 8;
+    });
+    drawFooter(2);
+  }
 
   // ===== Pages =====
   doc.pages.forEach((page, pIdx) => {
@@ -279,11 +308,8 @@ export async function exportDocToPDF(doc: GeneratedDoc): Promise<{ blob: Blob; f
         } catch {
           y = drawImageError(y, page.imageError || "Could not embed image into PDF.");
         }
-      } else {
-        y = drawImageError(
-          y,
-          page.imageError || "No image returned by the built-in image model for this topic.",
-        );
+      } else if (page.imageError) {
+        y = drawImageError(y, page.imageError);
       }
     }
 
@@ -306,7 +332,7 @@ export async function exportDocToPDF(doc: GeneratedDoc): Promise<{ blob: Blob; f
     });
 
     // Do not fill empty space with decorative or placeholder images.
-    drawFooter(pIdx + 2);
+    drawFooter(pIdx + 3);
   });
 
   // ===== Concepts & questions =====
@@ -336,7 +362,51 @@ export async function exportDocToPDF(doc: GeneratedDoc): Promise<{ blob: Blob; f
       subject: doc.subject || "",
     });
   }
-  drawFooter(pdf.getNumberOfPages());
+  // ===== Conclusion =====
+  {
+    let cy = newPage(doc.subject || "");
+    cy += 10;
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(24);
+    pdf.setTextColor(20, 25, 50);
+    pdf.text("Conclusion", margin, cy);
+    cy += 28;
+    if (doc.summary) {
+      cy = drawCalloutBox({
+        y: cy,
+        palette: BOX_PALETTE[0],
+        heading: "Short summary",
+        paragraph: doc.summary,
+        subject: doc.subject || "",
+      });
+    }
+    const revision = (doc.keyConcepts || []).slice(0, 8);
+    if (revision.length) {
+      cy = drawCalloutBox({
+        y: cy,
+        palette: BOX_PALETTE[1],
+        heading: "Important revision points",
+        bullets: revision,
+        subject: doc.subject || "",
+      });
+    }
+    cy = drawCalloutBox({
+      y: cy,
+      palette: BOX_PALETTE[2],
+      heading: "Quick recap",
+      bullets: doc.pages.slice(0, 8).map((p, i) => `${i + 1}. ${p.title}`),
+      subject: doc.subject || "",
+    });
+    drawCalloutBox({
+      y: cy,
+      palette: BOX_PALETTE[3],
+      heading: "Keep going!",
+      paragraph:
+        "Revise a little every day, attempt the practice questions without looking at the answers, and revisit the diagrams before your exam. Consistency beats cramming. — End of booklet.",
+      subject: doc.subject || "",
+    });
+    drawFooter(pdf.getNumberOfPages());
+  }
 
   const safe = doc.title.replace(/[^a-z0-9]+/gi, "_").slice(0, 40) || "nexora";
   const filename = `${safe}.pdf`;
