@@ -10,8 +10,13 @@ export type EducationalImageContext = {
 };
 
 const UNAVAILABLE = "Educational image unavailable for this topic";
-const MAX_CONCURRENT_IMAGE_REQUESTS = 8;
-const SERVER_FUNCTION_TIMEOUT_MS = 60_000;
+// Small, queued concurrency keeps us far below provider rate limits.
+const MAX_CONCURRENT_IMAGE_REQUESTS = 3;
+const SERVER_FUNCTION_TIMEOUT_MS = 75_000;
+// Exponential backoff for HTTP 429 / timeout failures. Max 5 attempts.
+const RETRY_DELAYS_MS = [2_000, 5_000, 10_000, 20_000, 30_000];
+// A booklet needs a handful of great illustrations, not dozens.
+const MAX_IMAGES_PER_DOC = 5;
 const PERSIST_KEY = "nexora.imgcache.v2";
 const PERSIST_LIMIT = 36;
 
@@ -72,10 +77,15 @@ function persistCache() {
 export type ImageGenerationProgress = {
   completed: number;
   total: number;
+  /** Not started yet. */
+  queued: number;
+  /** Currently generating. */
   active: number;
   success: number;
   failed: number;
   currentPage?: number;
+  /** True while any image is still generating or retrying. */
+  running: boolean;
   message: string;
 };
 
@@ -293,36 +303,44 @@ export async function fetchVerifiedEducationalImage(
   if (inFlight) return inFlight;
 
   const request = (async (): Promise<EducationalImageResult> => {
-    try {
-      const result = await withTimeout(
-        generateEducationalImage({ data: { prompt } }),
-        SERVER_FUNCTION_TIMEOUT_MS,
-        `Image generation exceeded ${Math.round(SERVER_FUNCTION_TIMEOUT_MS / 1000)} seconds and was skipped.`,
-      );
-      if (!result.ok) {
-        console.error("[educationalImages] image generation failed:", result.error);
-        return { ok: false, error: result.error, key, prompt, logs: result.logs };
+    let lastError = "Image generation failed";
+    let lastLogs: ImageRequestLog[] | undefined;
+
+    for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
+      try {
+        const result = await withTimeout(
+          generateEducationalImage({ data: { prompt } }),
+          SERVER_FUNCTION_TIMEOUT_MS,
+          `Image generation exceeded ${Math.round(SERVER_FUNCTION_TIMEOUT_MS / 1000)} seconds.`,
+        );
+        lastLogs = result.logs;
+        if (result.ok) {
+          const verified = await normalizeIfValid(result.dataUrl, w, h);
+          if (verified) {
+            const success: CachedImage = { key, prompt, logs: result.logs, ...verified };
+            successfulImageCache.set(key, success);
+            persistCache();
+            return { ok: true, ...success };
+          }
+          lastError =
+            "Generated image failed validation: blank, too small, or invalid image data.";
+        } else {
+          lastError = result.error;
+          // Only 429 / timeout / transient failures are worth retrying.
+          if (!result.retryable && !/429|rate limit|timeout|abort/i.test(result.error)) {
+            return { ok: false, error: lastError, key, prompt, logs: result.logs };
+          }
+        }
+      } catch (err) {
+        lastError = err instanceof Error ? err.message : String(err);
       }
-      const verified = await normalizeIfValid(result.dataUrl, w, h);
-      if (!verified) {
-        return {
-          ok: false,
-          error:
-            "Generated image failed validation: missing data, invalid MIME type, zero bytes, blank content, or invalid dimensions.",
-          key,
-          prompt,
-          logs: result.logs,
-        };
-      }
-      const success: CachedImage = { key, prompt, logs: result.logs, ...verified };
-      successfulImageCache.set(key, success);
-      persistCache();
-      return { ok: true, ...success };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error("[educationalImages] threw:", msg);
-      return { ok: false, error: msg, key, prompt };
+      const delay = RETRY_DELAYS_MS[attempt];
+      if (delay === undefined) break;
+      await new Promise((r) => setTimeout(r, delay));
     }
+
+    console.error("[educationalImages] all retries failed:", lastError);
+    return { ok: false, error: lastError, key, prompt, logs: lastLogs };
   })();
 
   inFlightImageCache.set(key, request);
@@ -347,13 +365,17 @@ export async function ensureDocEducationalImages(
     | { kind: "page"; pageIndex: number }
     | { kind: "section"; pageIndex: number; sectionIndex: number };
   const tasks: Task[] = [];
+  // Cover images for the earliest pages first, then per-section diagrams, so a
+  // capped budget still spreads illustrations across the whole document.
+  doc.pages.forEach((_page, pageIndex) => tasks.push({ kind: "page", pageIndex }));
   doc.pages.forEach((page, pageIndex) => {
-    tasks.push({ kind: "page", pageIndex });
     const sectionCount = Math.min(sectionsPerPage, page.sections.length);
     for (let s = 0; s < sectionCount; s += 1) {
       tasks.push({ kind: "section", pageIndex, sectionIndex: s });
     }
   });
+  // Cap the number of images so generation stays fast and inside rate limits.
+  if (tasks.length > MAX_IMAGES_PER_DOC) tasks.length = MAX_IMAGES_PER_DOC;
   const total = tasks.length;
   const concurrency = Math.max(
     1,
@@ -366,16 +388,21 @@ export async function ensureDocEducationalImages(
   let failed = 0;
 
   const emit = (currentPage?: number) => {
+    const queued = Math.max(0, total - completed - active);
     options.onProgress?.({
       completed,
       total,
+      queued,
       active,
       success,
       failed,
       currentPage,
-      message: total
-        ? `Generating educational images — ${Math.round((completed / total) * 100)}% (${completed}/${total})`
-        : "No images required",
+      running: completed < total,
+      message: !total
+        ? "No images required"
+        : completed >= total
+          ? `Educational illustrations ready — ${success} generated${failed ? `, ${failed} unavailable` : ""}`
+          : `Preparing educational illustrations… ${Math.round((completed / total) * 100)}% · ${active} generating · ${queued} queued · ${failed} failed`,
     });
   };
 

@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { ArrowLeft, Download, Moon, Play, Share2, Sparkles, Sun } from "lucide-react";
+import { ArrowLeft, Download, Loader2, Moon, Play, Share2, Sparkles, Sun } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { toast } from "sonner";
 import { useTheme } from "@/lib/theme";
@@ -9,11 +9,15 @@ export function TopBar({
   onExportPDF,
   onPresent,
   onToggleAI,
+  busy,
+  busyLabel,
 }: {
   title: string;
   onExportPDF: () => void;
   onPresent: () => void;
   onToggleAI?: () => void;
+  busy?: boolean;
+  busyLabel?: string;
 }) {
   const { theme, toggle } = useTheme();
   const share = async () => {
@@ -69,9 +73,12 @@ export function TopBar({
         </button>
         <button
           onClick={onExportPDF}
-          className="inline-flex items-center gap-1.5 rounded-xl gradient-aurora px-4 py-2 text-xs font-bold text-white shadow-glow transition hover:scale-[1.02]"
+          disabled={busy}
+          title={busy ? busyLabel : "Export PDF"}
+          className="inline-flex items-center gap-1.5 rounded-xl gradient-aurora px-4 py-2 text-xs font-bold text-white shadow-glow transition hover:scale-[1.02] disabled:opacity-60 disabled:hover:scale-100"
         >
-          <Download className="h-4 w-4" /> Export PDF
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+          {busy ? busyLabel || "Preparing educational illustrations…" : "Export PDF"}
         </button>
       </div>
     </header>

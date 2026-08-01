@@ -110,6 +110,7 @@ function Workspace() {
     toast.loading("Building illustrated PDF…", { id: "pdf" });
     try {
       const docWithImages = await ensureDocEducationalImages(project.doc, {
+        format: project.doc.format,
         onProgress: (progress) => {
           setImageProgress(progress);
           toast.loading(`${progress.message} · ${progress.completed}/${progress.total} complete`, {
@@ -119,6 +120,7 @@ function Workspace() {
       });
       setProject((p) => (p ? { ...p, doc: docWithImages } : p));
       toast.loading("Embedding verified images into PDF…", { id: "pdf" });
+      if (docWithImages.providerNotice) toast.message(docWithImages.providerNotice);
       const out = await exportDocToPDF(docWithImages);
       setLastPdf(out);
       toast.success("PDF downloaded — share it below", { id: "pdf" });
@@ -183,7 +185,14 @@ function Workspace() {
     <div className="relative flex min-h-screen flex-col">
       <AnimatedBackground />
       <Toaster position="top-center" richColors />
-      <TopBar title={project.title} onExportPDF={handleExport} onPresent={() => setPresenting(true)} onToggleAI={() => setAiOpen((o) => !o)} />
+      <TopBar
+        title={project.title}
+        onExportPDF={handleExport}
+        onPresent={() => setPresenting(true)}
+        onToggleAI={() => setAiOpen((o) => !o)}
+        busy={exporting}
+        busyLabel={imageProgress?.running ? "Preparing educational illustrations…" : "Building PDF…"}
+      />
       <div className="flex flex-1 overflow-hidden">
         <PagesSidebar project={project} active={activePage} onSelect={setActivePage} onAdd={addPage} />
         <main className="flex-1 overflow-y-auto scrollbar-thin px-3 py-6 md:px-8 md:py-10">
@@ -230,7 +239,7 @@ function Workspace() {
             </div>
             {imageProgress && (
               <div className="mt-1 text-[10px] text-muted-foreground">
-                {imageProgress.success} ready · {imageProgress.failed} skipped · {imageProgress.active} running
+                {imageProgress.queued} queued · {imageProgress.active} generating · {imageProgress.success} completed · {imageProgress.failed} failed
               </div>
             )}
           </div>
