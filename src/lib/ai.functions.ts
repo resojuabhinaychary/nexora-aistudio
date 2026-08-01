@@ -1,16 +1,12 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import {
-  fallbackGenerateImage,
-  geminiGenerateImage,
-  geminiGenerateText,
-  requireGeminiKey,
-  type GeminiContent,
-} from "./gemini";
+import type { GeminiContent } from "./gemini";
+import { generateImageWithFallback, generateTextWithFallback } from "./ai-provider.server";
 
 const inputSchema = z.object({
   topic: z.string().min(2).max(2000),
   format: z.enum(["notes", "presentation", "pdf"]),
+  grade: z.string().max(40).optional(),
   imageBase64: z.string().optional(),
 });
 
@@ -85,6 +81,11 @@ export type GeneratedDoc = {
   /** PDF booklet only. */
   glossary?: { term: string; definition: string }[];
   references?: string[];
+  /** Selected class level, e.g. "Class 10". */
+  grade?: string;
+  /** Which AI provider produced this document. */
+  provider?: string;
+  providerNotice?: string;
 };
 
 const systemPrompt = `You are Nexora AI, a master educator and exam coach. Produce accurate, well-structured, curriculum-grade educational material. Never output placeholders, "TBD", "lorem ipsum", empty strings, or incomplete sentences. Every field you emit must be finished, factually correct content. Adapt the SHAPE of your output strictly to the requested format — notes, presentation and booklet outputs must look and read completely differently. Output ONLY valid JSON matching the requested schema. No prose, no markdown fences.`;
@@ -95,8 +96,11 @@ function dataUrlToInlinePart(dataUrl: string) {
   return { inlineData: { mimeType: match[1], data: match[2] } };
 }
 
-function buildUserPrompt(topic: string, format: string) {
-  const common = `Topic / request: "${topic}"
+function buildUserPrompt(topic: string, format: string, grade?: string) {
+  const gradeRule = grade
+    ? `TARGET CLASS: ${grade}. This is mandatory. Match the ${grade} syllabus exactly — vocabulary, depth, examples, formulas, MCQs and image choices must all be appropriate for ${grade}. Never introduce concepts from higher classes.\n`
+    : "";
+  const common = `${gradeRule}Topic / request: "${topic}"
 
 IMAGE QUERIES — for every page set "imageQuery" to a precise 4-8 word description of the single most useful EDUCATIONAL diagram for that page's exact content (e.g. "labeled chloroplast diagram light reactions", "free body diagram inclined plane friction", "benzene ring resonance structure", "binary search flowchart", "map of indian monsoon winds"). Never a generic scene, never a stock photo idea, never decorative. Also set a top-level "coverImageQuery" for the topic as a whole.
 All content must be complete and factually accurate. No placeholders.`;
@@ -160,22 +164,18 @@ Return JSON:
 export const generateContent = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => inputSchema.parse(input))
   .handler(async ({ data }) => {
-    const apiKey = requireGeminiKey();
-    const parts: GeminiContent["parts"] = [{ text: buildUserPrompt(data.topic, data.format) }];
+    const parts: GeminiContent["parts"] = [{ text: buildUserPrompt(data.topic, data.format, data.grade) }];
     if (data.imageBase64) {
       const inline = dataUrlToInlinePart(data.imageBase64);
       if (inline) parts.push(inline);
     }
-    const content = await geminiGenerateText(
-      apiKey,
-      [{ role: "user", parts }],
-      {
-        system: systemPrompt,
-        json: true,
-        temperature: data.format === "pdf" ? 0.6 : 0.75,
-        maxOutputTokens: data.format === "pdf" ? 16384 : 8192,
-      },
-    );
+    const generated = await generateTextWithFallback([{ role: "user", parts }], {
+      system: systemPrompt,
+      json: true,
+      temperature: data.format === "pdf" ? 0.6 : 0.75,
+      maxOutputTokens: data.format === "pdf" ? 16384 : 8192,
+    });
+    const content = generated.text;
     let parsed: GeneratedDoc;
     try {
       parsed = JSON.parse(content);
@@ -197,6 +197,9 @@ export const generateContent = createServerFn({ method: "POST" })
       }))
       .filter((p) => p.title && p.sections.length > 0);
     if (parsed.pages.length === 0) throw new Error("AI produced no usable pages");
+    parsed.grade = data.grade;
+    parsed.provider = generated.provider;
+    parsed.providerNotice = generated.notice;
     return parsed;
   });
 
@@ -210,7 +213,6 @@ export const explainConcept = createServerFn({ method: "POST" })
       .parse(input),
   )
   .handler(async ({ data }) => {
-    const apiKey = requireGeminiKey();
     const questionText =
       data.question ||
       "Read the question or content in this image carefully. If it is a problem, solve it step by step. If it is study material, explain it clearly with key takeaways.";
@@ -219,17 +221,13 @@ export const explainConcept = createServerFn({ method: "POST" })
       const inline = dataUrlToInlinePart(data.imageBase64);
       if (inline) parts.push(inline);
     }
-    const answer = await geminiGenerateText(
-      apiKey,
-      [{ role: "user", parts }],
-      {
+    const solved = await generateTextWithFallback([{ role: "user", parts }], {
         system:
           "You are Nexora AI, an expert tutor giving DEEP, exam-ready explanations. Solve doubts thoroughly and rigorously. Use Markdown with bold section headings, short paragraphs, numbered steps, and bullet points. Always structure your response with these sections: **Answer** (one concise line), **Step-by-step Solution** (numbered, every step justified), **Concept Explained** (the underlying theory in depth — definitions, formulas, why it works), **Worked Example** (a similar example fully solved), **Common Mistakes** (pitfalls to avoid), and **Quick Recap** (3-5 bullets). Highlight key terms and final answers in **bold**. Show all working for math/physics. If an image is provided, first transcribe the question or describe the diagram, then solve.",
-        temperature: 0.6,
-        maxOutputTokens: 4096,
-      },
-    );
-    return { answer };
+      temperature: 0.6,
+      maxOutputTokens: 4096,
+    });
+    return { answer: solved.text, provider: solved.provider, providerNotice: solved.notice };
   });
 
 // ============================================================================
@@ -256,55 +254,29 @@ function sleep(ms: number) {
 export const generateEducationalImage = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => geminiImageInputSchema.parse(input))
   .handler(async ({ data }) => {
-    const key = process.env.GEMINI_API_KEY;
-    const errors: string[] = [];
-    const logs: ImageRequestLog[] = [];
-    for (let attempt = 1; key && attempt <= MAX_IMAGE_ATTEMPTS; attempt += 1) {
-      const startTime = new Date();
-      try {
-        const result = await geminiGenerateImage(key, data.prompt, attempt - 1);
-        const endTime = new Date();
-        const baseLog: ImageRequestLog = {
-          model: result.ok ? result.model : `gemini-image-attempt-${attempt}`,
-          prompt: data.prompt,
-          startTime: startTime.toISOString(),
-          endTime: endTime.toISOString(),
-          durationMs: endTime.getTime() - startTime.getTime(),
-          retryCount: attempt - 1,
-          success: result.ok,
-          errorMessage: result.ok ? undefined : result.error,
-        };
-        logs.push(baseLog);
-        if (result.ok) return { ok: true as const, dataUrl: result.dataUrl, logs };
-        errors.push(`Attempt ${attempt}: ${result.error}`);
-        if (!result.retryable) break;
-        if (attempt < MAX_IMAGE_ATTEMPTS) await sleep(attempt * 1200);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        errors.push(`Attempt ${attempt} threw: ${msg}`);
-        if (attempt < MAX_IMAGE_ATTEMPTS) await sleep(attempt * 1200);
-      }
-    }
-    if (!key) errors.push("GEMINI_API_KEY is not configured on the server.");
-
-    // Gemini image models unavailable / out of quota — use the free fallback
-    // generator so documents still receive relevant illustrations.
-    for (let attempt = 0; attempt < MAX_FALLBACK_ATTEMPTS; attempt += 1) {
-      const startTime = new Date();
-      const fallback = await fallbackGenerateImage(data.prompt, attempt);
-      const endTime = new Date();
-      logs.push({
-        model: "flux-fallback",
+    const startTime = new Date();
+    const result = await generateImageWithFallback(data.prompt);
+    const endTime = new Date();
+    const logs: ImageRequestLog[] = [
+      {
+        model: result.ok ? `${result.provider}:${result.model}` : "image-generation",
         prompt: data.prompt,
         startTime: startTime.toISOString(),
         endTime: endTime.toISOString(),
         durationMs: endTime.getTime() - startTime.getTime(),
-        retryCount: attempt,
-        success: fallback.ok,
-        errorMessage: fallback.ok ? undefined : fallback.error,
-      });
-      if (fallback.ok) return { ok: true as const, dataUrl: fallback.dataUrl, logs };
-      errors.push(`Fallback attempt ${attempt + 1}: ${fallback.error}`);
+        retryCount: 0,
+        success: result.ok,
+        errorMessage: result.ok ? undefined : result.error,
+      },
+    ];
+    if (result.ok) {
+      return {
+        ok: true as const,
+        dataUrl: result.dataUrl,
+        provider: result.provider,
+        notice: result.notice,
+        logs,
+      };
     }
-    return { ok: false as const, error: errors.join(" | "), logs };
+    return { ok: false as const, error: result.error, retryable: result.retryable, logs };
   });
