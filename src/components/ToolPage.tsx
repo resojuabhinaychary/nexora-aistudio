@@ -16,6 +16,8 @@ import { createProject } from "@/lib/projects";
 
 type Mode = "doubt" | "notes" | "presentation" | "pdf";
 
+const GRADES = ["Class 6", "Class 7", "Class 8", "Class 9", "Class 10", "Class 11", "Class 12"];
+
 const COPY: Record<Mode, { title: string; subtitle: string; placeholder: string; cta: string; gradient: string; emoji: string; suggestions: string[] }> = {
   doubt: {
     title: "Doubt Solver",
@@ -81,6 +83,7 @@ export function ToolPage({ mode }: { mode: Mode }) {
   const ask = useServerFn(explainConcept);
   const gen = useServerFn(generateContent);
   const [text, setText] = useState("");
+  const [grade, setGrade] = useState("Class 10");
   const [image, setImage] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
   const [answer, setAnswer] = useState("");
@@ -109,7 +112,7 @@ export function ToolPage({ mode }: { mode: Mode }) {
         setAnswer(r.answer);
       } else {
         toast.loading(`Generating your ${mode}…`, { id: "gen" });
-        const doc = await gen({ data: { topic: t || "Explain the uploaded content", format: mode, imageBase64: image } });
+        const doc = await gen({ data: { topic: t || "Explain the uploaded content", format: mode, grade, imageBase64: image } });
         const p = createProject({ topic: t || doc.title, format: mode, doc });
         toast.success("Ready!", { id: "gen" });
         navigate({ to: "/workspace/$id", params: { id: p.id } });
@@ -156,6 +159,29 @@ export function ToolPage({ mode }: { mode: Mode }) {
           <div className="text-5xl">{copy.emoji}</div>
           <h1 className="mt-3 font-display text-3xl font-extrabold tracking-tight text-ink md:text-5xl">{copy.title}</h1>
           <p className="mt-2 max-w-xl text-sm font-medium text-ink/70 md:text-base">{copy.subtitle}</p>
+          {mode !== "doubt" && (
+            <div className="mt-5">
+              <div className="mb-2 text-[11px] font-extrabold uppercase tracking-[0.18em] text-ink/60">
+                Select your class — content is written strictly for this level
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {GRADES.map((g) => (
+                  <button
+                    key={g}
+                    onClick={() => setGrade(g)}
+                    aria-pressed={grade === g}
+                    className={`rounded-full border px-3.5 py-1.5 text-xs font-bold transition ${
+                      grade === g
+                        ? "gradient-aurora border-transparent text-white shadow-soft"
+                        : "border-border bg-white/80 text-ink backdrop-blur hover:border-primary/40"
+                    }`}
+                  >
+                    {g}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </motion.section>
 
         <motion.div
