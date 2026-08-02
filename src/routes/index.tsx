@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { Sparkles, MessageCircleQuestion, BookOpen, Presentation, FileDown, Library, ArrowRight, User2, Instagram, GraduationCap } from "lucide-react";
 import { AnimatedBackground } from "@/components/AnimatedBackground";
 import { Logo } from "@/components/Logo";
+import { InfoCenterButton } from "@/components/InfoCenter";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -69,12 +70,29 @@ function Home() {
     <div className="relative min-h-screen">
       <AnimatedBackground />
 
+      <div className="flex w-full flex-col items-center gap-1 pt-3">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+          Made by <span className="text-ink">ABHINAYCHARY</span>
+        </p>
+        <a
+          href="https://instagram.com/abhinay_chary_"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Instagram @abhinay_chary_"
+          className="inline-flex items-center gap-1.5 rounded-full border border-border bg-white/80 px-3 py-1 text-[10px] font-bold text-ink shadow-soft backdrop-blur transition hover:border-primary/40"
+        >
+          <Instagram className="h-3.5 w-3.5 text-primary" />
+          @abhinay_chary_
+        </a>
+      </div>
+
       <header className="mx-auto flex w-full max-w-6xl items-center justify-between px-5 py-4">
         <Logo />
         <nav className="flex items-center gap-2">
           <Link to="/dashboard" className="inline-flex items-center gap-1.5 rounded-full border border-border bg-white/80 px-3.5 py-2 text-xs font-bold text-ink backdrop-blur transition hover:border-primary/40">
             <Library className="h-3.5 w-3.5" /> Library
           </Link>
+          <InfoCenterButton />
           <div className="grid h-9 w-9 place-items-center rounded-full border border-border bg-white/80 text-ink backdrop-blur">
             <User2 className="h-4 w-4" />
           </div>
@@ -141,23 +159,6 @@ function Home() {
         </section>
       </main>
 
-      <footer className="pb-8">
-        <div className="mx-auto flex w-full max-w-6xl flex-col items-center justify-center gap-1.5 px-5 text-center">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-            Made by <span className="text-ink">ABHINAYCHARY</span>
-          </p>
-          <a
-            href="https://instagram.com/abhinay_chary_"
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label="Instagram @abhinay_chary_"
-            className="inline-flex items-center gap-1.5 rounded-full border border-border bg-white/80 px-3 py-1 text-[11px] font-bold text-ink shadow-soft backdrop-blur transition hover:border-primary/40"
-          >
-            <Instagram className="h-3.5 w-3.5 text-primary" />
-            @abhinay_chary_
-          </a>
-        </div>
-      </footer>
     </div>
   );
 }
