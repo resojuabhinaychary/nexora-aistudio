@@ -11,12 +11,12 @@ export type EducationalImageContext = {
 
 const UNAVAILABLE = "Educational image unavailable for this topic";
 // Small, queued concurrency keeps us far below provider rate limits.
-const MAX_CONCURRENT_IMAGE_REQUESTS = 3;
+const MAX_CONCURRENT_IMAGE_REQUESTS = 2;
 const SERVER_FUNCTION_TIMEOUT_MS = 75_000;
-// Exponential backoff for HTTP 429 / timeout failures. Max 5 attempts.
-const RETRY_DELAYS_MS = [2_000, 5_000, 10_000, 20_000, 30_000];
-// A booklet needs a handful of great illustrations, not dozens.
-const MAX_IMAGES_PER_DOC = 5;
+// Backoff for HTTP 429 / timeout failures. Max 3 retries: 3s, 5s, 10s.
+const RETRY_DELAYS_MS = [3_000, 5_000, 10_000];
+// A booklet needs 5–6 great illustrations, not dozens.
+const MAX_IMAGES_PER_DOC = 6;
 const PERSIST_KEY = "nexora.imgcache.v2";
 const PERSIST_LIMIT = 36;
 
@@ -401,8 +401,8 @@ export async function ensureDocEducationalImages(
       message: !total
         ? "No images required"
         : completed >= total
-          ? `Educational illustrations ready — ${success} generated${failed ? `, ${failed} unavailable` : ""}`
-          : `Preparing educational illustrations… ${Math.round((completed / total) * 100)}% · ${active} generating · ${queued} queued · ${failed} failed`,
+          ? `Educational illustrations ready — ${success} of ${total}`
+          : `Generating image ${Math.min(completed + 1, total)} of ${total} · ${Math.round((completed / total) * 100)}% — finding the best educational resources…`,
     });
   };
 

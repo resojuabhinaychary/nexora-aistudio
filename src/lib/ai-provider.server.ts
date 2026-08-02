@@ -124,6 +124,51 @@ export type ProviderImageResult =
   | { ok: true; dataUrl: string; provider: ProviderName; model: string; notice?: string }
   | { ok: false; error: string; retryable: boolean };
 
+/** Search trusted educational image sources (Wikimedia Commons) and inline the bytes. */
+async function searchEducationalImage(
+  prompt: string,
+): Promise<{ ok: true; dataUrl: string; model: string } | { ok: false; error: string }> {
+  // Use the topic/keyword lines of the prompt as the search query.
+  const query = prompt
+    .split("\n")
+    .filter((l) => /^(Subject|Chapter|Topic|Keywords):/i.test(l))
+    .map((l) => l.replace(/^[^:]+:\s*/, ""))
+    .join(" ")
+    .replace(/[^\p{L}\p{N}\s-]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 120);
+  if (!query) return { ok: false, error: "No search query available" };
+  try {
+    const api = `https://commons.wikimedia.org/w/api.php?action=query&format=json&origin=*&generator=search&gsrnamespace=6&gsrlimit=8&gsrsearch=${encodeURIComponent(
+      `${query} diagram`,
+    )}&prop=imageinfo&iiprop=url|mime&iiurlwidth=1024`;
+    const res = await fetch(api, { signal: AbortSignal.timeout(15_000) });
+    if (!res.ok) return { ok: false, error: `Educational image search HTTP ${res.status}` };
+    const json: any = await res.json();
+    const pages: any[] = Object.values(json?.query?.pages || {});
+    for (const p of pages) {
+      const info = p?.imageinfo?.[0];
+      const url: string | undefined = info?.thumburl || info?.url;
+      if (!url || !/\.(png|jpe?g)$/i.test(url.split("?")[0])) continue;
+      const img = await fetch(url, { signal: AbortSignal.timeout(20_000) });
+      if (!img.ok) continue;
+      const mimeType = img.headers.get("content-type") || "image/jpeg";
+      if (!mimeType.startsWith("image/")) continue;
+      const bytes = new Uint8Array(await img.arrayBuffer());
+      if (bytes.byteLength < 2048) continue;
+      let binary = "";
+      for (let i = 0; i < bytes.length; i += 8192) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
+      }
+      return { ok: true, dataUrl: `data:${mimeType};base64,${btoa(binary)}`, model: "wikimedia-commons" };
+    }
+    return { ok: false, error: "No relevant educational image found" };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 export async function generateImageWithFallback(prompt: string): Promise<ProviderImageResult> {
   const errors: string[] = [];
   let usedBackup = false;
@@ -189,6 +234,19 @@ export async function generateImageWithFallback(prompt: string): Promise<Provide
     errors.push(gem.error);
     if (gem.retryable) retryable = true;
   }
+
+  // Trusted educational image search before the generic generator.
+  const searched = await searchEducationalImage(prompt);
+  if (searched.ok) {
+    return {
+      ok: true,
+      dataUrl: searched.dataUrl,
+      provider: "fallback",
+      model: searched.model,
+      notice: "Finding the best educational resources…",
+    };
+  }
+  errors.push(searched.error);
 
   // Last resort: free no-key generator so documents still get illustrations.
   for (let attempt = 0; attempt < 2; attempt += 1) {
