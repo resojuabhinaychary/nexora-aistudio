@@ -70,22 +70,6 @@ function Home() {
     <div className="relative min-h-screen">
       <AnimatedBackground />
 
-      <div className="flex w-full flex-col items-center gap-1 pt-3">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-          Made by <span className="text-ink">ABHINAYCHARY</span>
-        </p>
-        <a
-          href="https://instagram.com/abhinay_chary_"
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label="Instagram @abhinay_chary_"
-          className="inline-flex items-center gap-1.5 rounded-full border border-border bg-white/80 px-3 py-1 text-[10px] font-bold text-ink shadow-soft backdrop-blur transition hover:border-primary/40"
-        >
-          <Instagram className="h-3.5 w-3.5 text-primary" />
-          @abhinay_chary_
-        </a>
-      </div>
-
       <header className="mx-auto flex w-full max-w-6xl items-center justify-between px-5 py-4">
         <Logo />
         <nav className="flex items-center gap-2">
