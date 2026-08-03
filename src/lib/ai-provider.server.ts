@@ -19,7 +19,7 @@ import {
 } from "./gemini";
 
 const GATEWAY = "https://ai.gateway.lovable.dev/v1";
-const GATEWAY_CHAT_MODEL = "google/gemini-2.5-flash";
+const GATEWAY_CHAT_MODEL = "google/gemini-3.6-flash";
 const GATEWAY_IMAGE_MODEL = "google/gemini-3.1-flash-image";
 const COOLDOWN_MS = 5 * 60 * 1000;
 
@@ -169,6 +169,37 @@ async function searchEducationalImage(
   }
 }
 
+/** OpenAI Images API — third provider in the fallback chain. */
+async function openaiGenerateImage(
+  prompt: string,
+): Promise<{ ok: true; dataUrl: string; model: string } | { ok: false; error: string; retryable: boolean }> {
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) return { ok: false, error: "OPENAI_API_KEY not configured", retryable: false };
+  const model = "gpt-image-1-mini";
+  try {
+    const res = await fetch("https://api.openai.com/v1/images/generations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+      body: JSON.stringify({ model, prompt: prompt.slice(0, 3800), size: "1024x1024", n: 1 }),
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      return {
+        ok: false,
+        error: `OpenAI images HTTP ${res.status}: ${body.slice(0, 160)}`,
+        retryable: res.status === 429 || res.status >= 500,
+      };
+    }
+    const json: any = await res.json();
+    const b64 = json?.data?.[0]?.b64_json;
+    if (!b64) return { ok: false, error: "OpenAI returned no image data", retryable: false };
+    return { ok: true, dataUrl: `data:image/png;base64,${b64}`, model };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err), retryable: true };
+  }
+}
+
 export async function generateImageWithFallback(prompt: string): Promise<ProviderImageResult> {
   const errors: string[] = [];
   let usedBackup = false;
@@ -234,6 +265,20 @@ export async function generateImageWithFallback(prompt: string): Promise<Provide
     errors.push(gem.error);
     if (gem.retryable) retryable = true;
   }
+
+  // 3. OpenAI Images API.
+  const oai = await openaiGenerateImage(prompt);
+  if (oai.ok) {
+    return {
+      ok: true,
+      dataUrl: oai.dataUrl,
+      provider: "fallback",
+      model: oai.model,
+      notice: usedBackup ? "Using backup AI provider." : undefined,
+    };
+  }
+  errors.push(oai.error);
+  if (oai.retryable) retryable = true;
 
   // Trusted educational image search before the generic generator.
   const searched = await searchEducationalImage(prompt);
