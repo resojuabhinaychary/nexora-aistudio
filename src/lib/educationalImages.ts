@@ -11,7 +11,7 @@ export type EducationalImageContext = {
 
 const UNAVAILABLE = "Educational image unavailable for this topic";
 // Small, queued concurrency keeps us far below provider rate limits.
-const MAX_CONCURRENT_IMAGE_REQUESTS = 2;
+const MAX_CONCURRENT_IMAGE_REQUESTS = 4;
 const SERVER_FUNCTION_TIMEOUT_MS = 75_000;
 // Backoff for HTTP 429 / timeout failures. Max 3 retries: 3s, 5s, 10s.
 const RETRY_DELAYS_MS = [3_000, 5_000, 10_000];
@@ -178,7 +178,7 @@ export function buildEducationalImageKey(context: EducationalImageContext, w = 1
 }
 
 function parseImageDataUrl(dataUrl: string) {
-  const match = dataUrl.match(/^data:(image\/(?:png|jpeg|jpg|webp));base64,([A-Za-z0-9+/=]+)$/);
+  const match = dataUrl.match(/^data:(image\/(?:png|jpeg|jpg|webp|svg\+xml));base64,([A-Za-z0-9+/=]+)$/);
   if (!match) return null;
   const [, mimeType, base64] = match;
   let byteSize = 0;
@@ -303,7 +303,6 @@ export async function fetchVerifiedEducationalImage(
   if (inFlight) return inFlight;
 
   const request = (async (): Promise<EducationalImageResult> => {
-    let lastError = "Image generation failed";
     let lastLogs: ImageRequestLog[] | undefined;
 
     for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
@@ -314,33 +313,40 @@ export async function fetchVerifiedEducationalImage(
           `Image generation exceeded ${Math.round(SERVER_FUNCTION_TIMEOUT_MS / 1000)} seconds.`,
         );
         lastLogs = result.logs;
-        if (result.ok) {
-          const verified = await normalizeIfValid(result.dataUrl, w, h);
-          if (verified) {
-            const success: CachedImage = { key, prompt, logs: result.logs, ...verified };
-            successfulImageCache.set(key, success);
-            persistCache();
-            return { ok: true, ...success };
-          }
-          lastError =
-            "Generated image failed validation: blank, too small, or invalid image data.";
-        } else {
-          lastError = result.error;
-          // Only 429 / timeout / transient failures are worth retrying.
-          if (!result.retryable && !/429|rate limit|timeout|abort/i.test(result.error)) {
-            return { ok: false, error: lastError, key, prompt, logs: result.logs };
-          }
+        const verified = await normalizeIfValid(result.dataUrl, w, h);
+        if (verified) {
+          const success: CachedImage = { key, prompt, logs: result.logs, ...verified };
+          successfulImageCache.set(key, success);
+          persistCache();
+          return { ok: true, ...success };
         }
       } catch (err) {
-        lastError = err instanceof Error ? err.message : String(err);
+        // Internal only — the user never sees provider errors.
+        console.error("[educationalImages] attempt failed", err);
       }
       const delay = RETRY_DELAYS_MS[attempt];
       if (delay === undefined) break;
       await new Promise((r) => setTimeout(r, delay));
     }
 
-    console.error("[educationalImages] all retries failed:", lastError);
-    return { ok: false, error: lastError, key, prompt, logs: lastLogs };
+    // Guaranteed local educational diagram — never leave an empty space.
+    try {
+      const diagram = await withTimeout(
+        generateEducationalImage({ data: { prompt, diagramOnly: true } }),
+        20_000,
+        "diagram timeout",
+      );
+      const verified = await normalizeIfValid(diagram.dataUrl, w, h);
+      const fallback: CachedImage = verified
+        ? { key, prompt, logs: diagram.logs, ...verified }
+        : { key, prompt, logs: diagram.logs, dataUrl: diagram.dataUrl };
+      successfulImageCache.set(key, fallback);
+      persistCache();
+      return { ok: true, ...fallback };
+    } catch (err) {
+      console.error("[educationalImages] diagram fallback failed", err);
+      return { ok: false, error: UNAVAILABLE, key, prompt, logs: lastLogs };
+    }
   })();
 
   inFlightImageCache.set(key, request);
