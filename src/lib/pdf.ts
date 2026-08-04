@@ -40,18 +40,6 @@ export async function exportDocToPDF(doc: GeneratedDoc): Promise<{ blob: Blob; f
     return "PNG";
   };
 
-  const drawImageError = (y: number, msg?: string): number => {
-    pdf.setFont("helvetica", "bold");
-    pdf.setFontSize(10);
-    pdf.setTextColor(180, 50, 60);
-    const note = msg
-      ? `Educational image could not be generated. ${msg}`
-      : "Educational image could not be generated.";
-    const lines = pdf.splitTextToSize(note, contentW);
-    pdf.text(lines, margin, y + 8);
-    return y + lines.length * 12 + 8;
-  };
-
   const drawHeader = (subject: string) => {
     pdf.setFillColor(245, 248, 255);
     pdf.rect(0, 0, pageW, 26, "F");
@@ -210,10 +198,7 @@ export async function exportDocToPDF(doc: GeneratedDoc): Promise<{ blob: Blob; f
       coverDrawn = false;
     }
   }
-  if (!coverDrawn) {
-    const firstErr = doc.pages.find((p) => p.imageError)?.imageError;
-    if (firstErr) drawImageError(80, firstErr);
-  }
+  void coverDrawn;
   pdf.setTextColor(20, 25, 50);
   pdf.setFont("helvetica", "bold");
   pdf.setFontSize(34);
@@ -306,10 +291,8 @@ export async function exportDocToPDF(doc: GeneratedDoc): Promise<{ blob: Blob; f
           pdf.addImage(img, imageFormat(img), margin + 6, y + 6, contentW - 12, imgH, undefined, "FAST");
           y += imgH + 24;
         } catch {
-          y = drawImageError(y, page.imageError || "Could not embed image into PDF.");
+          /* image could not be embedded — skip silently, never show errors */
         }
-      } else if (page.imageError) {
-        y = drawImageError(y, page.imageError);
       }
     }
 

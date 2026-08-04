@@ -1,7 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import type { GeminiContent } from "./gemini";
-import { generateImageWithFallback, generateTextWithFallback } from "./ai-provider.server";
+import { generateTextWithFallback } from "./ai-provider.server";
+import { createEducationalImage, parsePromptFacts, renderEducationalSvg } from "./imageEngine.server";
 
 const inputSchema = z.object({
   topic: z.string().min(2).max(2000),
@@ -265,34 +266,29 @@ FORMATTING
 
 const geminiImageInputSchema = z.object({
   prompt: z.string().min(4).max(4000),
+  /** Skip network providers and render the guaranteed local diagram. */
+  diagramOnly: z.boolean().optional(),
 });
 
 export const generateEducationalImage = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => geminiImageInputSchema.parse(input))
   .handler(async ({ data }) => {
     const startTime = new Date();
-    const result = await generateImageWithFallback(data.prompt);
+    const result = data.diagramOnly
+      ? { dataUrl: renderEducationalSvg(parsePromptFacts(data.prompt)), source: "diagram" }
+      : await createEducationalImage(data.prompt);
     const endTime = new Date();
     const logs: ImageRequestLog[] = [
       {
-        model: result.ok ? `${result.provider}:${result.model}` : "image-generation",
+        model: "nexora-image-engine",
         prompt: data.prompt,
         startTime: startTime.toISOString(),
         endTime: endTime.toISOString(),
         durationMs: endTime.getTime() - startTime.getTime(),
         retryCount: 0,
-        success: result.ok,
-        errorMessage: result.ok ? undefined : result.error,
+        success: true,
       },
     ];
-    if (result.ok) {
-      return {
-        ok: true as const,
-        dataUrl: result.dataUrl,
-        provider: result.provider,
-        notice: result.notice,
-        logs,
-      };
-    }
-    return { ok: false as const, error: result.error, retryable: result.retryable, logs };
+    // The engine never fails — it always resolves with an educational visual.
+    return { ok: true as const, dataUrl: result.dataUrl, logs };
   });

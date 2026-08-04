@@ -1,4 +1,4 @@
-import type { GeneratedPage, GeneratedSection, ImageRequestLog } from "@/lib/ai.functions";
+import type { GeneratedPage, GeneratedSection } from "@/lib/ai.functions";
 import { buildEducationalImageKey, fetchVerifiedEducationalImage } from "@/lib/educationalImages";
 import { motion, AnimatePresence } from "framer-motion";
 import type { ElementType, FocusEvent } from "react";
@@ -45,10 +45,6 @@ export function Canvas({
   onChange: (next: GeneratedPage) => void;
 }) {
   const [imageState, setImageState] = useState<"idle" | "loading" | "failed">("idle");
-  const [imageError, setImageError] = useState<string | null>(page.imageError ?? null);
-  const [imageLogs, setImageLogs] = useState<ImageRequestLog[]>(
-    page.imageLogs || page.educationalImage?.logs || [],
-  );
   const imageContext = useMemo(
     () => ({
       subject,
@@ -68,16 +64,12 @@ export function Canvas({
     let cancelled = false;
     if (verifiedImage) {
       setImageState("idle");
-      setImageError(null);
-      setImageLogs(page.educationalImage?.logs || page.imageLogs || []);
       return () => {
         cancelled = true;
       };
     }
     if (imageUnavailable) {
       setImageState("failed");
-      setImageError(page.imageError ?? "Image generation failed.");
-      setImageLogs(page.imageLogs || []);
       return () => {
         cancelled = true;
       };
@@ -87,8 +79,6 @@ export function Canvas({
       if (cancelled) return;
       if (result.ok) {
         setImageState("idle");
-        setImageError(null);
-        setImageLogs(result.logs || []);
         onChange({
           ...page,
           educationalImage: {
@@ -107,13 +97,10 @@ export function Canvas({
         });
       } else {
         setImageState("failed");
-        setImageError(result.error);
-        setImageLogs(result.logs || []);
         onChange({
           ...page,
           educationalImage: undefined,
           unavailableImageKey: imageKey,
-          imageError: result.error,
           imageLogs: result.logs,
         });
       }
@@ -169,33 +156,14 @@ export function Canvas({
               className="mt-3 text-base font-medium text-muted-foreground md:text-lg"
             />
           )}
-          {!verifiedImage && (
+          {!verifiedImage && imageState === "loading" && (
             <div className="mt-3 space-y-1">
               <p className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
-                {imageState === "loading"
-                  ? `Generating image for page ${pageIndex + 1}…`
-                  : "Educational image could not be generated."}
+                Preparing illustration for page {pageIndex + 1}…
               </p>
-              {imageState === "loading" && (
-                <div className="h-1.5 w-full overflow-hidden rounded-full bg-secondary">
-                  <div className="h-full w-1/2 animate-pulse rounded-full gradient-aurora" />
-                </div>
-              )}
-              {imageState === "failed" && imageError && (
-                <details className="rounded-md bg-secondary px-3 py-2 text-[11px] font-semibold text-muted-foreground">
-                  <summary className="cursor-pointer text-ink">Technical details</summary>
-                  <pre className="mt-2 max-h-28 overflow-auto whitespace-pre-wrap break-words text-[10px] font-medium text-muted-foreground">
-                    {[
-                      `Error: ${imageError}`,
-                      `Prompt: ${page.imageQuery || page.title}`,
-                      ...imageLogs.map(
-                        (log, i) =>
-                          `Request ${i + 1}: model=${log.model}; start=${log.startTime}; end=${log.endTime}; duration=${log.durationMs}ms; response=${log.responseCode ?? "none"}; retry=${log.retryCount}; success=${log.success}; error=${log.errorMessage || "none"}`,
-                      ),
-                    ].join("\n")}
-                  </pre>
-                </details>
-              )}
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-secondary">
+                <div className="h-full w-1/2 animate-pulse rounded-full gradient-aurora" />
+              </div>
             </div>
           )}
           <div className="mt-5 h-1 w-16 rounded-full gradient-aurora" />

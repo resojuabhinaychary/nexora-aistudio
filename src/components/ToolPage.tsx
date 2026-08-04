@@ -16,7 +16,7 @@ import { createProject } from "@/lib/projects";
 
 type Mode = "doubt" | "notes" | "presentation" | "pdf";
 
-const GRADES = ["Class 6", "Class 7", "Class 8", "Class 9", "Class 10", "Class 11", "Class 12"];
+const GRADES = ["Class 6", "Class 7", "Class 8", "Class 9", "Class 10", "Intermediate", "Degree"];
 
 const COPY: Record<Mode, { title: string; subtitle: string; placeholder: string; cta: string; gradient: string; emoji: string; suggestions: string[] }> = {
   doubt: {
