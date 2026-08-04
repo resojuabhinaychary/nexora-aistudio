@@ -369,13 +369,6 @@ export function renderEducationalSvg(facts: PromptFacts): string {
     // Central concept map
     const cx = W / 2;
     const cy = 340;
-    parts.push(
-      `<circle cx="${cx}" cy="${cy}" r="94" fill="${p.a}"/>`,
-      ...wrap(heading, 14, 3).map(
-        (l, i, arr) =>
-          `<text x="${cx}" y="${cy - (arr.length - 1) * 11 + i * 22}" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="19" font-weight="700" fill="#ffffff">${esc(l)}</text>`,
-      ),
-    );
     const spots = [
       [60, 130],
       [660, 130],
@@ -383,26 +376,35 @@ export function renderEducationalSvg(facts: PromptFacts): string {
       [660, 430],
       [360, 500],
     ];
+    // Connectors first so the hub label always sits on top of them.
     nodes.forEach((n, i) => {
       const [x, y] = spots[i % spots.length];
       parts.push(arrow(cx, cy, x + 150, y + 34), label(x, y, 300, 68, n, i + 1));
     });
+    parts.push(
+      `<circle cx="${cx}" cy="${cy}" r="96" fill="${p.a}"/>`,
+      ...wrap(heading, 14, 3).map(
+        (l, i, arr) =>
+          `<text x="${cx}" y="${cy - (arr.length - 1) * 11 + i * 22}" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="18" font-weight="700" fill="#ffffff">${esc(l)}</text>`,
+      ),
+    );
   } else {
     // Cycle / process ring
     const cx = W / 2;
-    const cy = 330;
-    const r = 170;
+    const cy = 336;
+    const r = 178;
     parts.push(`<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${p.b}" stroke-width="6" stroke-dasharray="14 10"/>`);
     nodes.forEach((n, i) => {
       const angle = (i / nodes.length) * Math.PI * 2 - Math.PI / 2;
-      const x = cx + Math.cos(angle) * r - 130;
-      const y = cy + Math.sin(angle) * r - 33;
-      parts.push(label(x, y, 260, 66, n, i + 1));
+      const x = Math.min(W - 246, Math.max(16, cx + Math.cos(angle) * r - 115));
+      const y = Math.min(H - 100, Math.max(100, cy + Math.sin(angle) * r - 31));
+      parts.push(label(x, y, 230, 62, n, i + 1));
     });
     parts.push(
-      ...wrap(heading, 16, 2).map(
+      `<circle cx="${cx}" cy="${cy}" r="88" fill="#ffffff" stroke="${p.c}" stroke-width="4"/>`,
+      ...wrap(heading, 13, 3).map(
         (l, i, arr) =>
-          `<text x="${cx}" y="${cy - (arr.length - 1) * 13 + i * 26}" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="22" font-weight="700" fill="${p.a}">${esc(l)}</text>`,
+          `<text x="${cx}" y="${cy - (arr.length - 1) * 11 + i * 22}" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="18" font-weight="700" fill="${p.a}">${esc(l)}</text>`,
       ),
     );
   }
