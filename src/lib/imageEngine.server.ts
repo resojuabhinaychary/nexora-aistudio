@@ -336,11 +336,15 @@ async function viaReplicate(prompt: string): Promise<EngineImage | null> {
   return null;
 }
 
+function stockQueries(facts: PromptFacts) {
+  return [...buildSearchQueries(facts, "photo"), ...buildSearchQueries(facts, "diagram")];
+}
+
 async function viaPixabay(facts: PromptFacts): Promise<EngineImage | null> {
   const key = process.env.PIXABAY_API_KEY;
   if (!key || !available("pixabay")) return null;
   try {
-    for (const query of buildSearchQueries(facts)) {
+    for (const query of stockQueries(facts)) {
       const res = await fetch(
         `https://pixabay.com/api/?key=${key}&q=${encodeURIComponent(
           query,
@@ -353,7 +357,7 @@ async function viaPixabay(facts: PromptFacts): Promise<EngineImage | null> {
       }
       const json: any = await res.json();
       const hits: any[] = json?.hits || [];
-      const hit = pickRelevant(hits, facts, (h) => `${h?.tags || ""} ${h?.pageURL || ""}`);
+      const hit = pickRelevant(hits, facts, (h) => `${h?.tags || ""} ${h?.pageURL || ""}`, MIN_PHOTO_RELEVANCE);
       const url = hit?.largeImageURL || hit?.webformatURL;
       if (url) return { dataUrl: await fetchImageAsDataUrl(url), source: "pixabay" };
     }
@@ -367,7 +371,7 @@ async function viaPexels(facts: PromptFacts): Promise<EngineImage | null> {
   const key = process.env.PEXELS_API_KEY;
   if (!key || !available("pexels")) return null;
   try {
-    for (const query of buildSearchQueries(facts)) {
+    for (const query of stockQueries(facts)) {
       const res = await fetch(
         `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=30`,
         { headers: { Authorization: key }, signal: AbortSignal.timeout(15_000) },
@@ -378,7 +382,7 @@ async function viaPexels(facts: PromptFacts): Promise<EngineImage | null> {
       }
       const json: any = await res.json();
       const photos: any[] = json?.photos || [];
-      const photo = pickRelevant(photos, facts, (p) => `${p?.alt || ""} ${p?.url || ""}`);
+      const photo = pickRelevant(photos, facts, (p) => `${p?.alt || ""} ${p?.url || ""}`, MIN_PHOTO_RELEVANCE);
       const url = photo?.src?.large || photo?.src?.medium;
       if (url) return { dataUrl: await fetchImageAsDataUrl(url), source: "pexels" };
     }
@@ -392,7 +396,7 @@ async function viaUnsplash(facts: PromptFacts): Promise<EngineImage | null> {
   const key = process.env.UNSPLASH_ACCESS_KEY;
   if (!key || !available("unsplash")) return null;
   try {
-    for (const query of buildSearchQueries(facts)) {
+    for (const query of stockQueries(facts)) {
       const res = await fetch(
         `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=30`,
         { headers: { Authorization: `Client-ID ${key}` }, signal: AbortSignal.timeout(15_000) },
@@ -410,12 +414,92 @@ async function viaUnsplash(facts: PromptFacts): Promise<EngineImage | null> {
           `${r?.alt_description || ""} ${r?.description || ""} ${(r?.tags || [])
             .map((t: any) => t?.title)
             .join(" ")}`,
+        MIN_PHOTO_RELEVANCE,
       );
       const url = pick?.urls?.regular || pick?.urls?.small;
       if (url) return { dataUrl: await fetchImageAsDataUrl(url), source: "unsplash" };
     }
   } catch {
     down("unsplash");
+  }
+  return null;
+}
+
+/** Keyless real-image search: Openverse (Creative Commons photo index). */
+async function viaOpenverse(facts: PromptFacts): Promise<EngineImage | null> {
+  if (!available("openverse")) return null;
+  try {
+    for (const query of stockQueries(facts).slice(0, 4)) {
+      const res = await fetch(
+        `https://api.openverse.org/v1/images/?q=${encodeURIComponent(query)}&page_size=20&mature=false`,
+        { signal: AbortSignal.timeout(15_000), headers: { "User-Agent": "NexoraStudy/1.0" } },
+      );
+      if (!res.ok) {
+        if (res.status === 429) down("openverse");
+        continue;
+      }
+      const json: any = await res.json();
+      const results: any[] = json?.results || [];
+      const pick =
+        pickRelevant(results, facts, (r) => `${r?.title || ""} ${(r?.tags || []).map((t: any) => t?.name).join(" ")}`, MIN_PHOTO_RELEVANCE) ||
+        results[facts.variantIndex % Math.max(results.length, 1)];
+      const url = pick?.url || pick?.thumbnail;
+      if (url) {
+        try {
+          return { dataUrl: await fetchImageAsDataUrl(url, 20_000, { headers: { "User-Agent": "NexoraStudy/1.0" } }), source: "openverse" };
+        } catch {
+          /* try next query */
+        }
+      }
+    }
+  } catch {
+    down("openverse");
+  }
+  return null;
+}
+
+/** Keyless real-image search: Wikimedia Commons (photos + scientific imagery). */
+async function viaWikimedia(facts: PromptFacts): Promise<EngineImage | null> {
+  if (!available("wikimedia")) return null;
+  try {
+    for (const query of stockQueries(facts).slice(0, 4)) {
+      const url =
+        `https://commons.wikimedia.org/w/api.php?action=query&generator=search` +
+        `&gsrsearch=${encodeURIComponent(query)}&gsrnamespace=6&gsrlimit=20` +
+        `&prop=imageinfo&iiprop=url|mime|size&iiurlwidth=1024&format=json&origin=*`;
+      const res = await fetch(url, {
+        signal: AbortSignal.timeout(15_000),
+        headers: { "User-Agent": "NexoraStudy/1.0 (education)" },
+      });
+      if (!res.ok) {
+        if (res.status === 429) down("wikimedia");
+        continue;
+      }
+      const json: any = await res.json();
+      const pages: any[] = Object.values(json?.query?.pages || {});
+      const usable = pages.filter((p) => {
+        const info = p?.imageinfo?.[0];
+        return info?.thumburl && /image\/(jpeg|png|svg)/.test(info?.mime || "");
+      });
+      const pick =
+        pickRelevant(usable, facts, (p) => String(p?.title || "").replace(/^File:/, ""), MIN_PHOTO_RELEVANCE) ||
+        usable[facts.variantIndex % Math.max(usable.length, 1)];
+      const thumb = pick?.imageinfo?.[0]?.thumburl;
+      if (thumb) {
+        try {
+          return {
+            dataUrl: await fetchImageAsDataUrl(thumb, 20_000, {
+              headers: { "User-Agent": "NexoraStudy/1.0 (education)" },
+            }),
+            source: "wikimedia",
+          };
+        } catch {
+          /* try next query */
+        }
+      }
+    }
+  } catch {
+    down("wikimedia");
   }
   return null;
 }
@@ -582,7 +666,10 @@ export function renderEducationalSvg(facts: PromptFacts): string {
 // Public API — always resolves with an image.
 // ---------------------------------------------------------------------------
 
-export async function createEducationalImage(prompt: string): Promise<EngineImage> {
+export async function createEducationalImage(
+  prompt: string,
+  options: { allowDiagram?: boolean } = {},
+): Promise<EngineImage> {
   const facts = parsePromptFacts(prompt);
   const chain: Array<() => Promise<EngineImage | null>> = [
     () => viaGemini(prompt, facts),
@@ -591,6 +678,8 @@ export async function createEducationalImage(prompt: string): Promise<EngineImag
     () => viaPixabay(facts),
     () => viaPexels(facts),
     () => viaUnsplash(facts),
+    () => viaWikimedia(facts),
+    () => viaOpenverse(facts),
     () => viaKeylessGenerator(prompt, facts),
   ];
   for (const step of chain) {
@@ -602,5 +691,7 @@ export async function createEducationalImage(prompt: string): Promise<EngineImag
       console.error("[imageEngine] provider failed:", err instanceof Error ? err.message : err);
     }
   }
+  // Diagrams are the LAST resort and capped per document by the caller.
+  if (options.allowDiagram === false) return { dataUrl: "", source: "none" };
   return { dataUrl: renderEducationalSvg(facts), source: "diagram" };
 }
