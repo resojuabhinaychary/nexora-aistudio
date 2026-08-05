@@ -371,8 +371,11 @@ async function viaKeylessGenerator(prompt: string, facts: PromptFacts): Promise<
   const seed = 1000 + facts.variantIndex * 7;
   const model = facts.variantIndex % 2 === 0 ? "flux" : "turbo";
   try {
+    const focused = `Clean educational textbook diagram of ${buildSearchQueries(facts)[0]}, ${coreKeywords(
+      facts,
+    ).join(", ")}, labelled, white background, no watermark. ${prompt.slice(0, 400)}`;
     const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(
-      prompt.slice(0, 700),
+      focused.slice(0, 700),
     )}?width=896&height=504&nologo=true&enhance=false&model=${model}&seed=${seed}`;
     return { dataUrl: await fetchImageAsDataUrl(url, 22_000), source: "generator" };
   } catch {
