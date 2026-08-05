@@ -85,15 +85,109 @@ export function parsePromptFacts(prompt: string): PromptFacts {
   };
 }
 
-/** Short, clean search phrase for stock/photo providers. */
-function searchQuery(facts: PromptFacts) {
-  const base = [facts.topic.split("—")[0], facts.chapter, facts.keywords[0]]
-    .filter(Boolean)
-    .join(" ")
+// --- Focused educational query building -----------------------------------
+
+const STOP = new Set([
+  "the","a","an","and","or","of","in","on","for","to","with","by","from","its","it",
+  "is","are","was","were","be","this","that","these","those","as","at","into","about",
+  "how","what","why","when","which","explain","introduction","chapter","lesson","topic",
+  "study","notes","class","part","using","use","their","there","can","also","more",
+]);
+
+/** Domain hint words that make a query read as an educational diagram search. */
+const SUBJECT_HINTS: Array<[RegExp, string[]]> = [
+  [/phys/i, ["diagram", "labelled diagram", "physics illustration"]],
+  [/chem/i, ["diagram", "molecular structure", "chemistry illustration"]],
+  [/bio|life science/i, ["diagram", "labelled biology diagram", "anatomy illustration"]],
+  [/math|algebra|geometry|calculus/i, ["diagram", "graph", "geometry figure"]],
+  [/geo|earth/i, ["map diagram", "geography diagram", "illustration"]],
+  [/hist|civics|social/i, ["timeline illustration", "historical illustration", "infographic"]],
+  [/comput|coding|program/i, ["flowchart", "architecture diagram", "infographic"]],
+  [/econom|commerce|business/i, ["infographic", "chart", "process diagram"]],
+];
+
+function tokens(text: string) {
+  return text
+    .toLowerCase()
     .replace(/[^\p{L}\p{N}\s-]/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  return base.split(" ").slice(0, 6).join(" ") || facts.subject;
+    .split(/\s+/)
+    .filter((w) => w.length > 2 && !STOP.has(w));
+}
+
+/**
+ * Extracts the 3-5 most important educational keywords for the lesson,
+ * ranked by where they appear (topic title > chapter > keyword list).
+ */
+export function coreKeywords(facts: PromptFacts): string[] {
+  const score = new Map<string, number>();
+  const add = (text: string, weight: number) => {
+    tokens(text).forEach((w, i) => {
+      score.set(w, (score.get(w) || 0) + weight - i * 0.01);
+    });
+  };
+  add(facts.topic.split("—")[0] || "", 6);
+  add(facts.chapter, 3);
+  facts.keywords.slice(0, 6).forEach((k) => add(k, 2));
+  add(facts.subject, 0.5);
+  return [...score.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([w]) => w);
+}
+
+/**
+ * Ordered list of focused search phrases, best first:
+ * full lesson phrase + "diagram", keyword cluster + "diagram", then broader.
+ */
+export function buildSearchQueries(facts: PromptFacts): string[] {
+  const core = coreKeywords(facts);
+  const phrase = tokens(facts.topic.split("—")[0] || facts.chapter || facts.subject)
+    .slice(0, 4)
+    .join(" ");
+  const cluster = core.slice(0, 3).join(" ");
+  const hint = SUBJECT_HINTS.find(([re]) => re.test(facts.subject))?.[1] ?? [
+    "diagram",
+    "educational illustration",
+    "infographic",
+  ];
+  const list = [
+    phrase && `${phrase} ${hint[0]}`,
+    cluster && `${cluster} ${hint[0]}`,
+    phrase && `${phrase} ${hint[1]}`,
+    cluster && `${cluster} ${hint[2] ?? "educational illustration"}`,
+    phrase || cluster,
+  ].filter(Boolean) as string[];
+  return [...new Set(list.map((q) => q.replace(/\s+/g, " ").trim()))].filter(Boolean);
+}
+
+/** Relevance of a candidate's own text (tags/alt/title) against the lesson. */
+function relevance(candidateText: string, facts: PromptFacts) {
+  const core = coreKeywords(facts);
+  if (!core.length) return 1;
+  const hay = ` ${candidateText.toLowerCase()} `;
+  let hits = 0;
+  for (const w of core) {
+    const stem = w.length > 5 ? w.slice(0, Math.ceil(w.length * 0.75)) : w;
+    if (hay.includes(stem)) hits += 1;
+  }
+  return hits / Math.min(core.length, 4);
+}
+
+const MIN_RELEVANCE = 0.5;
+
+/** Picks the most lesson-relevant candidate, or null when none is close enough. */
+function pickRelevant<T>(
+  items: T[],
+  facts: PromptFacts,
+  describe: (item: T) => string,
+): T | null {
+  const scored = items
+    .map((item) => ({ item, score: relevance(describe(item), facts) }))
+    .sort((a, b) => b.score - a.score)
+    .filter((s) => s.score >= MIN_RELEVANCE);
+  if (!scored.length) return null;
+  const top = scored.filter((s) => s.score >= scored[0].score - 0.001);
+  return top[facts.variantIndex % top.length].item;
 }
 
 // ---------------------------------------------------------------------------
