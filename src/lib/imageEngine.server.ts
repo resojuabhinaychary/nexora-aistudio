@@ -510,9 +510,9 @@ async function viaKeylessGenerator(prompt: string, facts: PromptFacts): Promise<
   const seed = 1000 + facts.variantIndex * 7;
   const model = facts.variantIndex % 2 === 0 ? "flux" : "turbo";
   try {
-    const focused = `Clean educational textbook diagram of ${buildSearchQueries(facts)[0]}, ${coreKeywords(
+    const focused = `Realistic, high quality educational illustration of ${buildSearchQueries(facts, "photo")[0]}, ${coreKeywords(
       facts,
-    ).join(", ")}, labelled, white background, no watermark. ${prompt.slice(0, 400)}`;
+    ).join(", ")}, clear real subject, natural lighting, textbook quality, no text watermark. ${prompt.slice(0, 400)}`;
     const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(
       focused.slice(0, 700),
     )}?width=896&height=504&nologo=true&enhance=false&model=${model}&seed=${seed}`;
