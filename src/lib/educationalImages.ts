@@ -164,10 +164,11 @@ export function buildEducationalImagePrompt(context: EducationalImageContext) {
     `Topic: ${topic}`,
     keywords ? `Keywords: ${keywords}` : "",
     variant ? `Unique variant: ${variant} (must differ in composition, angle, and color from other images in this document)` : "",
-    `Visual style: ${styleHint}.`,
-    `Create a real topic-specific educational image: ${requirements}.`,
-    "Textbook-quality labeled diagram or infographic, clear labels, arrows, captions, white classroom background, accurate educational content.",
-    "No placeholder, no blank card, no dummy image, no decorative gradient, no title-page graphic, no random stock photo, no scenery, no city, no beach, no road, no building, no people, no unrelated background.",
+    `Visual style: realistic educational illustration or photograph of the actual subject (${styleHint} only if a schematic is truly required).`,
+    "Show the REAL thing the topic is about — the actual object, scene, organism, apparatus or activity (for example: a moving car for motion, a convex lens with light rays for optics, human lungs for respiration, a farmer in a field for agriculture, planets for the solar system).",
+    `If, and only if, the concept has no physical subject, use: ${requirements}.`,
+    "Do NOT produce a flowchart, mind map or concept map unless the topic itself is a process that cannot be shown physically.",
+    "High-quality, clear, classroom-appropriate, accurate. No placeholder, no blank card, no dummy image, no decorative gradient, no unrelated stock scenery, no watermark.",
   ]
     .filter(Boolean)
     .join("\n");
