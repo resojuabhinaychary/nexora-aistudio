@@ -288,6 +288,7 @@ export type EducationalImageResult =
       byteSize?: number;
       width?: number;
       height?: number;
+      source?: string;
     }
   | { ok: false; error: string; key: string; prompt: string; logs?: ImageRequestLog[] };
 
