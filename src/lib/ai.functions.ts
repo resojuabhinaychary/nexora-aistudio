@@ -268,6 +268,8 @@ const geminiImageInputSchema = z.object({
   prompt: z.string().min(4).max(4000),
   /** Skip network providers and render the guaranteed local diagram. */
   diagramOnly: z.boolean().optional(),
+  /** When false, never fall back to a generated SVG diagram. */
+  allowDiagram: z.boolean().optional(),
 });
 
 export const generateEducationalImage = createServerFn({ method: "POST" })
@@ -276,7 +278,7 @@ export const generateEducationalImage = createServerFn({ method: "POST" })
     const startTime = new Date();
     const result = data.diagramOnly
       ? { dataUrl: renderEducationalSvg(parsePromptFacts(data.prompt)), source: "diagram" }
-      : await createEducationalImage(data.prompt);
+      : await createEducationalImage(data.prompt, { allowDiagram: data.allowDiagram !== false });
     const endTime = new Date();
     const logs: ImageRequestLog[] = [
       {
@@ -289,6 +291,5 @@ export const generateEducationalImage = createServerFn({ method: "POST" })
         success: true,
       },
     ];
-    // The engine never fails — it always resolves with an educational visual.
-    return { ok: true as const, dataUrl: result.dataUrl, logs };
+    return { ok: true as const, dataUrl: result.dataUrl, source: result.source, logs };
   });
