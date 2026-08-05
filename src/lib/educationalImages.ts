@@ -29,6 +29,7 @@ type CachedImage = {
   byteSize?: number;
   width?: number;
   height?: number;
+  source?: string;
 };
 
 const successfulImageCache = new Map<string, CachedImage>();
@@ -294,6 +295,7 @@ export async function fetchVerifiedEducationalImage(
   context: EducationalImageContext,
   w = 1024,
   h = 576,
+  options: { allowDiagram?: boolean } = {},
 ): Promise<EducationalImageResult> {
   const prompt = buildEducationalImagePrompt(context);
   const key = buildEducationalImageKey(context, w, h);
@@ -302,6 +304,7 @@ export async function fetchVerifiedEducationalImage(
   if (cached) return { ok: true, ...cached };
   const inFlight = inFlightImageCache.get(key);
   if (inFlight) return inFlight;
+  const allowDiagram = options.allowDiagram !== false;
 
   const request = (async (): Promise<EducationalImageResult> => {
     let lastLogs: ImageRequestLog[] | undefined;
@@ -309,14 +312,15 @@ export async function fetchVerifiedEducationalImage(
     for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
       try {
         const result = await withTimeout(
-          generateEducationalImage({ data: { prompt } }),
+          generateEducationalImage({ data: { prompt, allowDiagram } }),
           SERVER_FUNCTION_TIMEOUT_MS,
           `Image generation exceeded ${Math.round(SERVER_FUNCTION_TIMEOUT_MS / 1000)} seconds.`,
         );
         lastLogs = result.logs;
+        if (!result.dataUrl) break;
         const verified = await normalizeIfValid(result.dataUrl, w, h);
         if (verified) {
-          const success: CachedImage = { key, prompt, logs: result.logs, ...verified };
+          const success: CachedImage = { key, prompt, logs: result.logs, source: result.source, ...verified };
           successfulImageCache.set(key, success);
           persistCache();
           return { ok: true, ...success };
@@ -330,7 +334,10 @@ export async function fetchVerifiedEducationalImage(
       await new Promise((r) => setTimeout(r, delay));
     }
 
-    // Guaranteed local educational diagram — never leave an empty space.
+    // Last resort: one locally rendered educational diagram (capped per doc).
+    if (!allowDiagram) {
+      return { ok: false, error: UNAVAILABLE, key, prompt, logs: lastLogs };
+    }
     try {
       const diagram = await withTimeout(
         generateEducationalImage({ data: { prompt, diagramOnly: true } }),
@@ -339,8 +346,8 @@ export async function fetchVerifiedEducationalImage(
       );
       const verified = await normalizeIfValid(diagram.dataUrl, w, h);
       const fallback: CachedImage = verified
-        ? { key, prompt, logs: diagram.logs, ...verified }
-        : { key, prompt, logs: diagram.logs, dataUrl: diagram.dataUrl };
+        ? { key, prompt, logs: diagram.logs, source: "diagram", ...verified }
+        : { key, prompt, logs: diagram.logs, source: "diagram", dataUrl: diagram.dataUrl };
       successfulImageCache.set(key, fallback);
       persistCache();
       return { ok: true, ...fallback };
