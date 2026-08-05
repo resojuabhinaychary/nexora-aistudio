@@ -85,15 +85,109 @@ export function parsePromptFacts(prompt: string): PromptFacts {
   };
 }
 
-/** Short, clean search phrase for stock/photo providers. */
-function searchQuery(facts: PromptFacts) {
-  const base = [facts.topic.split("—")[0], facts.chapter, facts.keywords[0]]
-    .filter(Boolean)
-    .join(" ")
+// --- Focused educational query building -----------------------------------
+
+const STOP = new Set([
+  "the","a","an","and","or","of","in","on","for","to","with","by","from","its","it",
+  "is","are","was","were","be","this","that","these","those","as","at","into","about",
+  "how","what","why","when","which","explain","introduction","chapter","lesson","topic",
+  "study","notes","class","part","using","use","their","there","can","also","more",
+]);
+
+/** Domain hint words that make a query read as an educational diagram search. */
+const SUBJECT_HINTS: Array<[RegExp, string[]]> = [
+  [/phys/i, ["diagram", "labelled diagram", "physics illustration"]],
+  [/chem/i, ["diagram", "molecular structure", "chemistry illustration"]],
+  [/bio|life science/i, ["diagram", "labelled biology diagram", "anatomy illustration"]],
+  [/math|algebra|geometry|calculus/i, ["diagram", "graph", "geometry figure"]],
+  [/geo|earth/i, ["map diagram", "geography diagram", "illustration"]],
+  [/hist|civics|social/i, ["timeline illustration", "historical illustration", "infographic"]],
+  [/comput|coding|program/i, ["flowchart", "architecture diagram", "infographic"]],
+  [/econom|commerce|business/i, ["infographic", "chart", "process diagram"]],
+];
+
+function tokens(text: string) {
+  return text
+    .toLowerCase()
     .replace(/[^\p{L}\p{N}\s-]/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  return base.split(" ").slice(0, 6).join(" ") || facts.subject;
+    .split(/\s+/)
+    .filter((w) => w.length > 2 && !STOP.has(w));
+}
+
+/**
+ * Extracts the 3-5 most important educational keywords for the lesson,
+ * ranked by where they appear (topic title > chapter > keyword list).
+ */
+export function coreKeywords(facts: PromptFacts): string[] {
+  const score = new Map<string, number>();
+  const add = (text: string, weight: number) => {
+    tokens(text).forEach((w, i) => {
+      score.set(w, (score.get(w) || 0) + weight - i * 0.01);
+    });
+  };
+  add(facts.topic.split("—")[0] || "", 6);
+  add(facts.chapter, 3);
+  facts.keywords.slice(0, 6).forEach((k) => add(k, 2));
+  add(facts.subject, 0.5);
+  return [...score.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([w]) => w);
+}
+
+/**
+ * Ordered list of focused search phrases, best first:
+ * full lesson phrase + "diagram", keyword cluster + "diagram", then broader.
+ */
+export function buildSearchQueries(facts: PromptFacts): string[] {
+  const core = coreKeywords(facts);
+  const phrase = tokens(facts.topic.split("—")[0] || facts.chapter || facts.subject)
+    .slice(0, 4)
+    .join(" ");
+  const cluster = core.slice(0, 3).join(" ");
+  const hint = SUBJECT_HINTS.find(([re]) => re.test(facts.subject))?.[1] ?? [
+    "diagram",
+    "educational illustration",
+    "infographic",
+  ];
+  const list = [
+    phrase && `${phrase} ${hint[0]}`,
+    cluster && `${cluster} ${hint[0]}`,
+    phrase && `${phrase} ${hint[1]}`,
+    cluster && `${cluster} ${hint[2] ?? "educational illustration"}`,
+    phrase || cluster,
+  ].filter(Boolean) as string[];
+  return [...new Set(list.map((q) => q.replace(/\s+/g, " ").trim()))].filter(Boolean);
+}
+
+/** Relevance of a candidate's own text (tags/alt/title) against the lesson. */
+function relevance(candidateText: string, facts: PromptFacts) {
+  const core = coreKeywords(facts);
+  if (!core.length) return 1;
+  const hay = ` ${candidateText.toLowerCase()} `;
+  let hits = 0;
+  for (const w of core) {
+    const stem = w.length > 5 ? w.slice(0, Math.ceil(w.length * 0.75)) : w;
+    if (hay.includes(stem)) hits += 1;
+  }
+  return hits / Math.min(core.length, 4);
+}
+
+const MIN_RELEVANCE = 0.5;
+
+/** Picks the most lesson-relevant candidate, or null when none is close enough. */
+function pickRelevant<T>(
+  items: T[],
+  facts: PromptFacts,
+  describe: (item: T) => string,
+): T | null {
+  const scored = items
+    .map((item) => ({ item, score: relevance(describe(item), facts) }))
+    .sort((a, b) => b.score - a.score)
+    .filter((s) => s.score >= MIN_RELEVANCE);
+  if (!scored.length) return null;
+  const top = scored.filter((s) => s.score >= scored[0].score - 0.001);
+  return top[facts.variantIndex % top.length].item;
 }
 
 // ---------------------------------------------------------------------------
@@ -191,22 +285,23 @@ async function viaPixabay(facts: PromptFacts): Promise<EngineImage | null> {
   const key = process.env.PIXABAY_API_KEY;
   if (!key || !available("pixabay")) return null;
   try {
-    const q = encodeURIComponent(`${searchQuery(facts)} diagram`);
-    const res = await fetch(
-      `https://pixabay.com/api/?key=${key}&q=${q}&image_type=all&safesearch=true&per_page=20&order=popular`,
-      { signal: AbortSignal.timeout(15_000) },
-    );
-    if (!res.ok) {
-      down("pixabay");
-      return null;
+    for (const query of buildSearchQueries(facts)) {
+      const res = await fetch(
+        `https://pixabay.com/api/?key=${key}&q=${encodeURIComponent(
+          query,
+        )}&image_type=all&safesearch=true&per_page=30&order=popular`,
+        { signal: AbortSignal.timeout(15_000) },
+      );
+      if (!res.ok) {
+        down("pixabay");
+        return null;
+      }
+      const json: any = await res.json();
+      const hits: any[] = json?.hits || [];
+      const hit = pickRelevant(hits, facts, (h) => `${h?.tags || ""} ${h?.pageURL || ""}`);
+      const url = hit?.largeImageURL || hit?.webformatURL;
+      if (url) return { dataUrl: await fetchImageAsDataUrl(url), source: "pixabay" };
     }
-    const json: any = await res.json();
-    const hits: any[] = json?.hits || [];
-    if (!hits.length) return null;
-    const hit = hits[facts.variantIndex % hits.length];
-    const url = hit?.largeImageURL || hit?.webformatURL;
-    if (!url) return null;
-    return { dataUrl: await fetchImageAsDataUrl(url), source: "pixabay" };
   } catch {
     down("pixabay");
   }
@@ -217,22 +312,21 @@ async function viaPexels(facts: PromptFacts): Promise<EngineImage | null> {
   const key = process.env.PEXELS_API_KEY;
   if (!key || !available("pexels")) return null;
   try {
-    const q = encodeURIComponent(searchQuery(facts));
-    const res = await fetch(`https://api.pexels.com/v1/search?query=${q}&per_page=20`, {
-      headers: { Authorization: key },
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (!res.ok) {
-      down("pexels");
-      return null;
+    for (const query of buildSearchQueries(facts)) {
+      const res = await fetch(
+        `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=30`,
+        { headers: { Authorization: key }, signal: AbortSignal.timeout(15_000) },
+      );
+      if (!res.ok) {
+        down("pexels");
+        return null;
+      }
+      const json: any = await res.json();
+      const photos: any[] = json?.photos || [];
+      const photo = pickRelevant(photos, facts, (p) => `${p?.alt || ""} ${p?.url || ""}`);
+      const url = photo?.src?.large || photo?.src?.medium;
+      if (url) return { dataUrl: await fetchImageAsDataUrl(url), source: "pexels" };
     }
-    const json: any = await res.json();
-    const photos: any[] = json?.photos || [];
-    if (!photos.length) return null;
-    const photo = photos[facts.variantIndex % photos.length];
-    const url = photo?.src?.large || photo?.src?.medium;
-    if (!url) return null;
-    return { dataUrl: await fetchImageAsDataUrl(url), source: "pexels" };
   } catch {
     down("pexels");
   }
@@ -243,22 +337,28 @@ async function viaUnsplash(facts: PromptFacts): Promise<EngineImage | null> {
   const key = process.env.UNSPLASH_ACCESS_KEY;
   if (!key || !available("unsplash")) return null;
   try {
-    const q = encodeURIComponent(searchQuery(facts));
-    const res = await fetch(`https://api.unsplash.com/search/photos?query=${q}&per_page=20`, {
-      headers: { Authorization: `Client-ID ${key}` },
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (!res.ok) {
-      down("unsplash");
-      return null;
+    for (const query of buildSearchQueries(facts)) {
+      const res = await fetch(
+        `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=30`,
+        { headers: { Authorization: `Client-ID ${key}` }, signal: AbortSignal.timeout(15_000) },
+      );
+      if (!res.ok) {
+        down("unsplash");
+        return null;
+      }
+      const json: any = await res.json();
+      const results: any[] = json?.results || [];
+      const pick = pickRelevant(
+        results,
+        facts,
+        (r) =>
+          `${r?.alt_description || ""} ${r?.description || ""} ${(r?.tags || [])
+            .map((t: any) => t?.title)
+            .join(" ")}`,
+      );
+      const url = pick?.urls?.regular || pick?.urls?.small;
+      if (url) return { dataUrl: await fetchImageAsDataUrl(url), source: "unsplash" };
     }
-    const json: any = await res.json();
-    const results: any[] = json?.results || [];
-    if (!results.length) return null;
-    const pick = results[facts.variantIndex % results.length];
-    const url = pick?.urls?.regular || pick?.urls?.small;
-    if (!url) return null;
-    return { dataUrl: await fetchImageAsDataUrl(url), source: "unsplash" };
   } catch {
     down("unsplash");
   }
@@ -271,8 +371,11 @@ async function viaKeylessGenerator(prompt: string, facts: PromptFacts): Promise<
   const seed = 1000 + facts.variantIndex * 7;
   const model = facts.variantIndex % 2 === 0 ? "flux" : "turbo";
   try {
+    const focused = `Clean educational textbook diagram of ${buildSearchQueries(facts)[0]}, ${coreKeywords(
+      facts,
+    ).join(", ")}, labelled, white background, no watermark. ${prompt.slice(0, 400)}`;
     const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(
-      prompt.slice(0, 700),
+      focused.slice(0, 700),
     )}?width=896&height=504&nologo=true&enhance=false&model=${model}&seed=${seed}`;
     return { dataUrl: await fetchImageAsDataUrl(url, 22_000), source: "generator" };
   } catch {
