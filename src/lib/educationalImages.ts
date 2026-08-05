@@ -29,6 +29,7 @@ type CachedImage = {
   byteSize?: number;
   width?: number;
   height?: number;
+  source?: string;
 };
 
 const successfulImageCache = new Map<string, CachedImage>();
@@ -164,10 +165,11 @@ export function buildEducationalImagePrompt(context: EducationalImageContext) {
     `Topic: ${topic}`,
     keywords ? `Keywords: ${keywords}` : "",
     variant ? `Unique variant: ${variant} (must differ in composition, angle, and color from other images in this document)` : "",
-    `Visual style: ${styleHint}.`,
-    `Create a real topic-specific educational image: ${requirements}.`,
-    "Textbook-quality labeled diagram or infographic, clear labels, arrows, captions, white classroom background, accurate educational content.",
-    "No placeholder, no blank card, no dummy image, no decorative gradient, no title-page graphic, no random stock photo, no scenery, no city, no beach, no road, no building, no people, no unrelated background.",
+    `Visual style: realistic educational illustration or photograph of the actual subject (${styleHint} only if a schematic is truly required).`,
+    "Show the REAL thing the topic is about — the actual object, scene, organism, apparatus or activity (for example: a moving car for motion, a convex lens with light rays for optics, human lungs for respiration, a farmer in a field for agriculture, planets for the solar system).",
+    `If, and only if, the concept has no physical subject, use: ${requirements}.`,
+    "Do NOT produce a flowchart, mind map or concept map unless the topic itself is a process that cannot be shown physically.",
+    "High-quality, clear, classroom-appropriate, accurate. No placeholder, no blank card, no dummy image, no decorative gradient, no unrelated stock scenery, no watermark.",
   ]
     .filter(Boolean)
     .join("\n");
@@ -286,6 +288,7 @@ export type EducationalImageResult =
       byteSize?: number;
       width?: number;
       height?: number;
+      source?: string;
     }
   | { ok: false; error: string; key: string; prompt: string; logs?: ImageRequestLog[] };
 
@@ -293,6 +296,7 @@ export async function fetchVerifiedEducationalImage(
   context: EducationalImageContext,
   w = 1024,
   h = 576,
+  options: { allowDiagram?: boolean } = {},
 ): Promise<EducationalImageResult> {
   const prompt = buildEducationalImagePrompt(context);
   const key = buildEducationalImageKey(context, w, h);
@@ -301,6 +305,7 @@ export async function fetchVerifiedEducationalImage(
   if (cached) return { ok: true, ...cached };
   const inFlight = inFlightImageCache.get(key);
   if (inFlight) return inFlight;
+  const allowDiagram = options.allowDiagram !== false;
 
   const request = (async (): Promise<EducationalImageResult> => {
     let lastLogs: ImageRequestLog[] | undefined;
@@ -308,14 +313,15 @@ export async function fetchVerifiedEducationalImage(
     for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
       try {
         const result = await withTimeout(
-          generateEducationalImage({ data: { prompt } }),
+          generateEducationalImage({ data: { prompt, allowDiagram } }),
           SERVER_FUNCTION_TIMEOUT_MS,
           `Image generation exceeded ${Math.round(SERVER_FUNCTION_TIMEOUT_MS / 1000)} seconds.`,
         );
         lastLogs = result.logs;
+        if (!result.dataUrl) break;
         const verified = await normalizeIfValid(result.dataUrl, w, h);
         if (verified) {
-          const success: CachedImage = { key, prompt, logs: result.logs, ...verified };
+          const success: CachedImage = { key, prompt, logs: result.logs, source: result.source, ...verified };
           successfulImageCache.set(key, success);
           persistCache();
           return { ok: true, ...success };
@@ -329,7 +335,10 @@ export async function fetchVerifiedEducationalImage(
       await new Promise((r) => setTimeout(r, delay));
     }
 
-    // Guaranteed local educational diagram — never leave an empty space.
+    // Last resort: one locally rendered educational diagram (capped per doc).
+    if (!allowDiagram) {
+      return { ok: false, error: UNAVAILABLE, key, prompt, logs: lastLogs };
+    }
     try {
       const diagram = await withTimeout(
         generateEducationalImage({ data: { prompt, diagramOnly: true } }),
@@ -338,8 +347,8 @@ export async function fetchVerifiedEducationalImage(
       );
       const verified = await normalizeIfValid(diagram.dataUrl, w, h);
       const fallback: CachedImage = verified
-        ? { key, prompt, logs: diagram.logs, ...verified }
-        : { key, prompt, logs: diagram.logs, dataUrl: diagram.dataUrl };
+        ? { key, prompt, logs: diagram.logs, source: "diagram", ...verified }
+        : { key, prompt, logs: diagram.logs, source: "diagram", dataUrl: diagram.dataUrl };
       successfulImageCache.set(key, fallback);
       persistCache();
       return { ok: true, ...fallback };
@@ -392,6 +401,13 @@ export async function ensureDocEducationalImages(
   let completed = 0;
   let success = 0;
   let failed = 0;
+  // Never turn a whole document into flowcharts: at most ONE generated diagram.
+  const MAX_DIAGRAMS_PER_DOC = 1;
+  let diagramsUsed = 0;
+  const diagramAllowed = () => diagramsUsed < MAX_DIAGRAMS_PER_DOC;
+  const noteSource = (source?: string) => {
+    if (source === "diagram") diagramsUsed += 1;
+  };
 
   const emit = (currentPage?: number) => {
     const queued = Math.max(0, total - completed - active);
@@ -446,8 +462,11 @@ export async function ensureDocEducationalImages(
           });
           success += 1;
         } else {
-          const result = await fetchVerifiedEducationalImage(context, 1024, 576);
+          const result = await fetchVerifiedEducationalImage(context, 1024, 576, {
+            allowDiagram: diagramAllowed(),
+          });
           if (result.ok) {
+            noteSource(result.source);
             pages[task.pageIndex] = {
               ...existing,
               educationalImage: {
@@ -493,8 +512,11 @@ export async function ensureDocEducationalImages(
         if (existingSection?.key === key) {
           success += 1;
         } else {
-          const result = await fetchVerifiedEducationalImage(context, 900, 500);
+          const result = await fetchVerifiedEducationalImage(context, 900, 500, {
+            allowDiagram: diagramAllowed(),
+          });
           if (result.ok) {
+            noteSource(result.source);
             pages[task.pageIndex] = {
               ...existing,
               sectionImages: {

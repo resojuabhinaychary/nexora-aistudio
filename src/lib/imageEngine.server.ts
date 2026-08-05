@@ -115,6 +115,43 @@ function tokens(text: string) {
 }
 
 /**
+ * Concrete real-world subjects worth photographing/illustrating for a lesson.
+ * These turn abstract headings into searchable real imagery.
+ */
+const REAL_SUBJECTS: Array<[RegExp, string[]]> = [
+  [/motion|speed|velocity|acceleration|distance|displacement/i, ["moving car on road", "person running", "bicycle in motion", "train moving on track"]],
+  [/force|newton|friction|gravity|momentum/i, ["pushing a heavy box", "football being kicked", "falling apple", "car braking on road"]],
+  [/lens|light|refraction|reflection|mirror|optic/i, ["convex lens with light rays", "glass lens experiment", "light passing through prism", "mirror reflection experiment"]],
+  [/sound|wave|vibrat/i, ["tuning fork vibrating", "guitar string vibration", "sound wave ripples in water"]],
+  [/electric|circuit|current|magnet/i, ["simple electric circuit with battery and bulb", "bar magnet with iron filings", "electrical wires and switch"]],
+  [/respirat|lung|breath/i, ["human lungs", "person breathing", "respiratory system model"]],
+  [/heart|blood|circulat/i, ["human heart", "blood circulation model", "stethoscope on chest"]],
+  [/digest|stomach|intestine/i, ["human digestive system model", "stomach anatomy"]],
+  [/photosynth|plant|leaf|chlorophyll/i, ["green plant in sunlight", "close up of leaf", "seedling growing in soil"]],
+  [/cell|microscope|bacteria|microb/i, ["cells under microscope", "microscope in laboratory", "bacteria microscopy"]],
+  [/agricultur|farm|crop|soil/i, ["farmer working in field", "crop field", "tractor ploughing farmland"]],
+  [/solar system|planet|space|astronom|star|moon/i, ["planets of the solar system", "earth from space", "telescope at night sky"]],
+  [/water|rain|river|ocean|monsoon|cycle/i, ["river flowing", "rain over fields", "ocean waves"]],
+  [/atom|molecul|chemical|reaction|acid|compound/i, ["chemistry laboratory glassware", "molecular model kit", "test tube reaction"]],
+  [/computer|coding|program|software|internet/i, ["student coding on laptop", "computer server room", "network cables"]],
+  [/econom|bank|money|trade|market|business/i, ["indian currency notes", "busy market place", "bank building"]],
+  [/histor|freedom|war|civilis|empire/i, ["historical monument", "ancient ruins", "old fort architecture"]],
+  [/democracy|government|constitution|election|civic/i, ["parliament building", "voting ballot box", "indian flag"]],
+  [/pollut|environment|climate|forest|ecosystem/i, ["factory smoke pollution", "dense green forest", "plastic waste on beach"]],
+  [/energy|fuel|solar panel|electricity generation/i, ["solar panels in field", "wind turbines", "power plant"]],
+];
+
+/** Real-world visual subject for a lesson, if we can recognise one. */
+function realSubjects(facts: PromptFacts): string[] {
+  const hay = `${facts.topic} ${facts.chapter} ${facts.subject} ${facts.keywords.join(" ")}`;
+  const found: string[] = [];
+  for (const [re, subjects] of REAL_SUBJECTS) {
+    if (re.test(hay)) found.push(...subjects);
+  }
+  return found;
+}
+
+/**
  * Extracts the 3-5 most important educational keywords for the lesson,
  * ranked by where they appear (topic title > chapter > keyword list).
  */
@@ -136,15 +173,30 @@ export function coreKeywords(facts: PromptFacts): string[] {
 }
 
 /**
- * Ordered list of focused search phrases, best first:
- * full lesson phrase + "diagram", keyword cluster + "diagram", then broader.
+ * Ordered list of focused search phrases, best first.
+ * `photo` mode targets REAL photographs/illustrations of the subject;
+ * `diagram` mode targets labelled schematic imagery.
  */
-export function buildSearchQueries(facts: PromptFacts): string[] {
+export function buildSearchQueries(facts: PromptFacts, mode: "photo" | "diagram" = "photo"): string[] {
   const core = coreKeywords(facts);
   const phrase = tokens(facts.topic.split("—")[0] || facts.chapter || facts.subject)
     .slice(0, 4)
     .join(" ");
   const cluster = core.slice(0, 3).join(" ");
+  const real = realSubjects(facts);
+  if (mode === "photo") {
+    const rotated = real.length
+      ? real.slice(facts.variantIndex % real.length).concat(real.slice(0, facts.variantIndex % real.length))
+      : [];
+    const list = [
+      ...rotated,
+      phrase,
+      cluster,
+      phrase && `${phrase} real photo`,
+      cluster && `${cluster} illustration`,
+    ].filter(Boolean) as string[];
+    return [...new Set(list.map((q) => q.replace(/\s+/g, " ").trim()))].filter(Boolean);
+  }
   const hint = SUBJECT_HINTS.find(([re]) => re.test(facts.subject))?.[1] ?? [
     "diagram",
     "educational illustration",
@@ -174,17 +226,20 @@ function relevance(candidateText: string, facts: PromptFacts) {
 }
 
 const MIN_RELEVANCE = 0.5;
+/** Real-photo searches use short, concrete queries, so accept looser matches. */
+const MIN_PHOTO_RELEVANCE = 0.25;
 
 /** Picks the most lesson-relevant candidate, or null when none is close enough. */
 function pickRelevant<T>(
   items: T[],
   facts: PromptFacts,
   describe: (item: T) => string,
+  minScore: number = MIN_RELEVANCE,
 ): T | null {
   const scored = items
     .map((item) => ({ item, score: relevance(describe(item), facts) }))
     .sort((a, b) => b.score - a.score)
-    .filter((s) => s.score >= MIN_RELEVANCE);
+    .filter((s) => s.score >= minScore);
   if (!scored.length) return null;
   const top = scored.filter((s) => s.score >= scored[0].score - 0.001);
   return top[facts.variantIndex % top.length].item;
@@ -281,11 +336,15 @@ async function viaReplicate(prompt: string): Promise<EngineImage | null> {
   return null;
 }
 
+function stockQueries(facts: PromptFacts) {
+  return [...buildSearchQueries(facts, "photo"), ...buildSearchQueries(facts, "diagram")];
+}
+
 async function viaPixabay(facts: PromptFacts): Promise<EngineImage | null> {
   const key = process.env.PIXABAY_API_KEY;
   if (!key || !available("pixabay")) return null;
   try {
-    for (const query of buildSearchQueries(facts)) {
+    for (const query of stockQueries(facts)) {
       const res = await fetch(
         `https://pixabay.com/api/?key=${key}&q=${encodeURIComponent(
           query,
@@ -298,7 +357,7 @@ async function viaPixabay(facts: PromptFacts): Promise<EngineImage | null> {
       }
       const json: any = await res.json();
       const hits: any[] = json?.hits || [];
-      const hit = pickRelevant(hits, facts, (h) => `${h?.tags || ""} ${h?.pageURL || ""}`);
+      const hit = pickRelevant(hits, facts, (h) => `${h?.tags || ""} ${h?.pageURL || ""}`, MIN_PHOTO_RELEVANCE);
       const url = hit?.largeImageURL || hit?.webformatURL;
       if (url) return { dataUrl: await fetchImageAsDataUrl(url), source: "pixabay" };
     }
@@ -312,7 +371,7 @@ async function viaPexels(facts: PromptFacts): Promise<EngineImage | null> {
   const key = process.env.PEXELS_API_KEY;
   if (!key || !available("pexels")) return null;
   try {
-    for (const query of buildSearchQueries(facts)) {
+    for (const query of stockQueries(facts)) {
       const res = await fetch(
         `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=30`,
         { headers: { Authorization: key }, signal: AbortSignal.timeout(15_000) },
@@ -323,7 +382,7 @@ async function viaPexels(facts: PromptFacts): Promise<EngineImage | null> {
       }
       const json: any = await res.json();
       const photos: any[] = json?.photos || [];
-      const photo = pickRelevant(photos, facts, (p) => `${p?.alt || ""} ${p?.url || ""}`);
+      const photo = pickRelevant(photos, facts, (p) => `${p?.alt || ""} ${p?.url || ""}`, MIN_PHOTO_RELEVANCE);
       const url = photo?.src?.large || photo?.src?.medium;
       if (url) return { dataUrl: await fetchImageAsDataUrl(url), source: "pexels" };
     }
@@ -337,7 +396,7 @@ async function viaUnsplash(facts: PromptFacts): Promise<EngineImage | null> {
   const key = process.env.UNSPLASH_ACCESS_KEY;
   if (!key || !available("unsplash")) return null;
   try {
-    for (const query of buildSearchQueries(facts)) {
+    for (const query of stockQueries(facts)) {
       const res = await fetch(
         `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=30`,
         { headers: { Authorization: `Client-ID ${key}` }, signal: AbortSignal.timeout(15_000) },
@@ -355,6 +414,7 @@ async function viaUnsplash(facts: PromptFacts): Promise<EngineImage | null> {
           `${r?.alt_description || ""} ${r?.description || ""} ${(r?.tags || [])
             .map((t: any) => t?.title)
             .join(" ")}`,
+        MIN_PHOTO_RELEVANCE,
       );
       const url = pick?.urls?.regular || pick?.urls?.small;
       if (url) return { dataUrl: await fetchImageAsDataUrl(url), source: "unsplash" };
@@ -365,15 +425,94 @@ async function viaUnsplash(facts: PromptFacts): Promise<EngineImage | null> {
   return null;
 }
 
+/** Keyless real-image search: Openverse (Creative Commons photo index). */
+async function viaOpenverse(facts: PromptFacts): Promise<EngineImage | null> {
+  if (!available("openverse")) return null;
+  try {
+    for (const query of stockQueries(facts).slice(0, 4)) {
+      const res = await fetch(
+        `https://api.openverse.org/v1/images/?q=${encodeURIComponent(query)}&page_size=20&mature=false`,
+        { signal: AbortSignal.timeout(15_000), headers: { "User-Agent": "NexoraStudy/1.0" } },
+      );
+      if (!res.ok) {
+        if (res.status === 429) down("openverse");
+        continue;
+      }
+      const json: any = await res.json();
+      const results: any[] = json?.results || [];
+      const pick =
+        pickRelevant(results, facts, (r) => `${r?.title || ""} ${(r?.tags || []).map((t: any) => t?.name).join(" ")}`, MIN_PHOTO_RELEVANCE) ||
+        results[facts.variantIndex % Math.max(results.length, 1)];
+      const url = pick?.url || pick?.thumbnail;
+      if (url) {
+        try {
+          return { dataUrl: await fetchImageAsDataUrl(url, 20_000, { headers: { "User-Agent": "NexoraStudy/1.0" } }), source: "openverse" };
+        } catch {
+          /* try next query */
+        }
+      }
+    }
+  } catch {
+    down("openverse");
+  }
+  return null;
+}
+
+/** Keyless real-image search: Wikimedia Commons (photos + scientific imagery). */
+async function viaWikimedia(facts: PromptFacts): Promise<EngineImage | null> {
+  if (!available("wikimedia")) return null;
+  try {
+    for (const query of stockQueries(facts).slice(0, 4)) {
+      const url =
+        `https://commons.wikimedia.org/w/api.php?action=query&generator=search` +
+        `&gsrsearch=${encodeURIComponent(query)}&gsrnamespace=6&gsrlimit=20` +
+        `&prop=imageinfo&iiprop=url|mime|size&iiurlwidth=1024&format=json&origin=*`;
+      const res = await fetch(url, {
+        signal: AbortSignal.timeout(15_000),
+        headers: { "User-Agent": "NexoraStudy/1.0 (education)" },
+      });
+      if (!res.ok) {
+        if (res.status === 429) down("wikimedia");
+        continue;
+      }
+      const json: any = await res.json();
+      const pages: any[] = Object.values(json?.query?.pages || {});
+      const usable = pages.filter((p) => {
+        const info = p?.imageinfo?.[0];
+        return info?.thumburl && /image\/(jpeg|png|svg)/.test(info?.mime || "");
+      });
+      const pick =
+        pickRelevant(usable, facts, (p) => String(p?.title || "").replace(/^File:/, ""), MIN_PHOTO_RELEVANCE) ||
+        usable[facts.variantIndex % Math.max(usable.length, 1)];
+      const thumb = pick?.imageinfo?.[0]?.thumburl;
+      if (thumb) {
+        try {
+          return {
+            dataUrl: await fetchImageAsDataUrl(thumb, 20_000, {
+              headers: { "User-Agent": "NexoraStudy/1.0 (education)" },
+            }),
+            source: "wikimedia",
+          };
+        } catch {
+          /* try next query */
+        }
+      }
+    }
+  } catch {
+    down("wikimedia");
+  }
+  return null;
+}
+
 /** Keyless generator — no credentials required, keeps quality high when keys run out. */
 async function viaKeylessGenerator(prompt: string, facts: PromptFacts): Promise<EngineImage | null> {
   if (!available("keyless")) return null;
   const seed = 1000 + facts.variantIndex * 7;
   const model = facts.variantIndex % 2 === 0 ? "flux" : "turbo";
   try {
-    const focused = `Clean educational textbook diagram of ${buildSearchQueries(facts)[0]}, ${coreKeywords(
+    const focused = `Realistic, high quality educational illustration of ${buildSearchQueries(facts, "photo")[0]}, ${coreKeywords(
       facts,
-    ).join(", ")}, labelled, white background, no watermark. ${prompt.slice(0, 400)}`;
+    ).join(", ")}, clear real subject, natural lighting, textbook quality, no text watermark. ${prompt.slice(0, 400)}`;
     const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(
       focused.slice(0, 700),
     )}?width=896&height=504&nologo=true&enhance=false&model=${model}&seed=${seed}`;
@@ -527,7 +666,10 @@ export function renderEducationalSvg(facts: PromptFacts): string {
 // Public API — always resolves with an image.
 // ---------------------------------------------------------------------------
 
-export async function createEducationalImage(prompt: string): Promise<EngineImage> {
+export async function createEducationalImage(
+  prompt: string,
+  options: { allowDiagram?: boolean } = {},
+): Promise<EngineImage> {
   const facts = parsePromptFacts(prompt);
   const chain: Array<() => Promise<EngineImage | null>> = [
     () => viaGemini(prompt, facts),
@@ -536,6 +678,8 @@ export async function createEducationalImage(prompt: string): Promise<EngineImag
     () => viaPixabay(facts),
     () => viaPexels(facts),
     () => viaUnsplash(facts),
+    () => viaWikimedia(facts),
+    () => viaOpenverse(facts),
     () => viaKeylessGenerator(prompt, facts),
   ];
   for (const step of chain) {
@@ -547,5 +691,7 @@ export async function createEducationalImage(prompt: string): Promise<EngineImag
       console.error("[imageEngine] provider failed:", err instanceof Error ? err.message : err);
     }
   }
+  // Diagrams are the LAST resort and capped per document by the caller.
+  if (options.allowDiagram === false) return { dataUrl: "", source: "none" };
   return { dataUrl: renderEducationalSvg(facts), source: "diagram" };
 }
