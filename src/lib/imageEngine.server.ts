@@ -285,22 +285,23 @@ async function viaPixabay(facts: PromptFacts): Promise<EngineImage | null> {
   const key = process.env.PIXABAY_API_KEY;
   if (!key || !available("pixabay")) return null;
   try {
-    const q = encodeURIComponent(`${searchQuery(facts)} diagram`);
-    const res = await fetch(
-      `https://pixabay.com/api/?key=${key}&q=${q}&image_type=all&safesearch=true&per_page=20&order=popular`,
-      { signal: AbortSignal.timeout(15_000) },
-    );
-    if (!res.ok) {
-      down("pixabay");
-      return null;
+    for (const query of buildSearchQueries(facts)) {
+      const res = await fetch(
+        `https://pixabay.com/api/?key=${key}&q=${encodeURIComponent(
+          query,
+        )}&image_type=all&safesearch=true&per_page=30&order=popular`,
+        { signal: AbortSignal.timeout(15_000) },
+      );
+      if (!res.ok) {
+        down("pixabay");
+        return null;
+      }
+      const json: any = await res.json();
+      const hits: any[] = json?.hits || [];
+      const hit = pickRelevant(hits, facts, (h) => `${h?.tags || ""} ${h?.pageURL || ""}`);
+      const url = hit?.largeImageURL || hit?.webformatURL;
+      if (url) return { dataUrl: await fetchImageAsDataUrl(url), source: "pixabay" };
     }
-    const json: any = await res.json();
-    const hits: any[] = json?.hits || [];
-    if (!hits.length) return null;
-    const hit = hits[facts.variantIndex % hits.length];
-    const url = hit?.largeImageURL || hit?.webformatURL;
-    if (!url) return null;
-    return { dataUrl: await fetchImageAsDataUrl(url), source: "pixabay" };
   } catch {
     down("pixabay");
   }
@@ -311,22 +312,21 @@ async function viaPexels(facts: PromptFacts): Promise<EngineImage | null> {
   const key = process.env.PEXELS_API_KEY;
   if (!key || !available("pexels")) return null;
   try {
-    const q = encodeURIComponent(searchQuery(facts));
-    const res = await fetch(`https://api.pexels.com/v1/search?query=${q}&per_page=20`, {
-      headers: { Authorization: key },
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (!res.ok) {
-      down("pexels");
-      return null;
+    for (const query of buildSearchQueries(facts)) {
+      const res = await fetch(
+        `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=30`,
+        { headers: { Authorization: key }, signal: AbortSignal.timeout(15_000) },
+      );
+      if (!res.ok) {
+        down("pexels");
+        return null;
+      }
+      const json: any = await res.json();
+      const photos: any[] = json?.photos || [];
+      const photo = pickRelevant(photos, facts, (p) => `${p?.alt || ""} ${p?.url || ""}`);
+      const url = photo?.src?.large || photo?.src?.medium;
+      if (url) return { dataUrl: await fetchImageAsDataUrl(url), source: "pexels" };
     }
-    const json: any = await res.json();
-    const photos: any[] = json?.photos || [];
-    if (!photos.length) return null;
-    const photo = photos[facts.variantIndex % photos.length];
-    const url = photo?.src?.large || photo?.src?.medium;
-    if (!url) return null;
-    return { dataUrl: await fetchImageAsDataUrl(url), source: "pexels" };
   } catch {
     down("pexels");
   }
@@ -337,22 +337,28 @@ async function viaUnsplash(facts: PromptFacts): Promise<EngineImage | null> {
   const key = process.env.UNSPLASH_ACCESS_KEY;
   if (!key || !available("unsplash")) return null;
   try {
-    const q = encodeURIComponent(searchQuery(facts));
-    const res = await fetch(`https://api.unsplash.com/search/photos?query=${q}&per_page=20`, {
-      headers: { Authorization: `Client-ID ${key}` },
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (!res.ok) {
-      down("unsplash");
-      return null;
+    for (const query of buildSearchQueries(facts)) {
+      const res = await fetch(
+        `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=30`,
+        { headers: { Authorization: `Client-ID ${key}` }, signal: AbortSignal.timeout(15_000) },
+      );
+      if (!res.ok) {
+        down("unsplash");
+        return null;
+      }
+      const json: any = await res.json();
+      const results: any[] = json?.results || [];
+      const pick = pickRelevant(
+        results,
+        facts,
+        (r) =>
+          `${r?.alt_description || ""} ${r?.description || ""} ${(r?.tags || [])
+            .map((t: any) => t?.title)
+            .join(" ")}`,
+      );
+      const url = pick?.urls?.regular || pick?.urls?.small;
+      if (url) return { dataUrl: await fetchImageAsDataUrl(url), source: "unsplash" };
     }
-    const json: any = await res.json();
-    const results: any[] = json?.results || [];
-    if (!results.length) return null;
-    const pick = results[facts.variantIndex % results.length];
-    const url = pick?.urls?.regular || pick?.urls?.small;
-    if (!url) return null;
-    return { dataUrl: await fetchImageAsDataUrl(url), source: "unsplash" };
   } catch {
     down("unsplash");
   }
