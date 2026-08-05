@@ -401,6 +401,13 @@ export async function ensureDocEducationalImages(
   let completed = 0;
   let success = 0;
   let failed = 0;
+  // Never turn a whole document into flowcharts: at most ONE generated diagram.
+  const MAX_DIAGRAMS_PER_DOC = 1;
+  let diagramsUsed = 0;
+  const diagramAllowed = () => diagramsUsed < MAX_DIAGRAMS_PER_DOC;
+  const noteSource = (source?: string) => {
+    if (source === "diagram") diagramsUsed += 1;
+  };
 
   const emit = (currentPage?: number) => {
     const queued = Math.max(0, total - completed - active);
@@ -455,8 +462,11 @@ export async function ensureDocEducationalImages(
           });
           success += 1;
         } else {
-          const result = await fetchVerifiedEducationalImage(context, 1024, 576);
+          const result = await fetchVerifiedEducationalImage(context, 1024, 576, {
+            allowDiagram: diagramAllowed(),
+          });
           if (result.ok) {
+            noteSource(result.source);
             pages[task.pageIndex] = {
               ...existing,
               educationalImage: {
@@ -502,8 +512,11 @@ export async function ensureDocEducationalImages(
         if (existingSection?.key === key) {
           success += 1;
         } else {
-          const result = await fetchVerifiedEducationalImage(context, 900, 500);
+          const result = await fetchVerifiedEducationalImage(context, 900, 500, {
+            allowDiagram: diagramAllowed(),
+          });
           if (result.ok) {
+            noteSource(result.source);
             pages[task.pageIndex] = {
               ...existing,
               sectionImages: {
