@@ -115,6 +115,43 @@ function tokens(text: string) {
 }
 
 /**
+ * Concrete real-world subjects worth photographing/illustrating for a lesson.
+ * These turn abstract headings into searchable real imagery.
+ */
+const REAL_SUBJECTS: Array<[RegExp, string[]]> = [
+  [/motion|speed|velocity|acceleration|distance|displacement/i, ["moving car on road", "person running", "bicycle in motion", "train moving on track"]],
+  [/force|newton|friction|gravity|momentum/i, ["pushing a heavy box", "football being kicked", "falling apple", "car braking on road"]],
+  [/lens|light|refraction|reflection|mirror|optic/i, ["convex lens with light rays", "glass lens experiment", "light passing through prism", "mirror reflection experiment"]],
+  [/sound|wave|vibrat/i, ["tuning fork vibrating", "guitar string vibration", "sound wave ripples in water"]],
+  [/electric|circuit|current|magnet/i, ["simple electric circuit with battery and bulb", "bar magnet with iron filings", "electrical wires and switch"]],
+  [/respirat|lung|breath/i, ["human lungs", "person breathing", "respiratory system model"]],
+  [/heart|blood|circulat/i, ["human heart", "blood circulation model", "stethoscope on chest"]],
+  [/digest|stomach|intestine/i, ["human digestive system model", "stomach anatomy"]],
+  [/photosynth|plant|leaf|chlorophyll/i, ["green plant in sunlight", "close up of leaf", "seedling growing in soil"]],
+  [/cell|microscope|bacteria|microb/i, ["cells under microscope", "microscope in laboratory", "bacteria microscopy"]],
+  [/agricultur|farm|crop|soil/i, ["farmer working in field", "crop field", "tractor ploughing farmland"]],
+  [/solar system|planet|space|astronom|star|moon/i, ["planets of the solar system", "earth from space", "telescope at night sky"]],
+  [/water|rain|river|ocean|monsoon|cycle/i, ["river flowing", "rain over fields", "ocean waves"]],
+  [/atom|molecul|chemical|reaction|acid|compound/i, ["chemistry laboratory glassware", "molecular model kit", "test tube reaction"]],
+  [/computer|coding|program|software|internet/i, ["student coding on laptop", "computer server room", "network cables"]],
+  [/econom|bank|money|trade|market|business/i, ["indian currency notes", "busy market place", "bank building"]],
+  [/histor|freedom|war|civilis|empire/i, ["historical monument", "ancient ruins", "old fort architecture"]],
+  [/democracy|government|constitution|election|civic/i, ["parliament building", "voting ballot box", "indian flag"]],
+  [/pollut|environment|climate|forest|ecosystem/i, ["factory smoke pollution", "dense green forest", "plastic waste on beach"]],
+  [/energy|fuel|solar panel|electricity generation/i, ["solar panels in field", "wind turbines", "power plant"]],
+];
+
+/** Real-world visual subject for a lesson, if we can recognise one. */
+function realSubjects(facts: PromptFacts): string[] {
+  const hay = `${facts.topic} ${facts.chapter} ${facts.subject} ${facts.keywords.join(" ")}`;
+  const found: string[] = [];
+  for (const [re, subjects] of REAL_SUBJECTS) {
+    if (re.test(hay)) found.push(...subjects);
+  }
+  return found;
+}
+
+/**
  * Extracts the 3-5 most important educational keywords for the lesson,
  * ranked by where they appear (topic title > chapter > keyword list).
  */
@@ -136,15 +173,30 @@ export function coreKeywords(facts: PromptFacts): string[] {
 }
 
 /**
- * Ordered list of focused search phrases, best first:
- * full lesson phrase + "diagram", keyword cluster + "diagram", then broader.
+ * Ordered list of focused search phrases, best first.
+ * `photo` mode targets REAL photographs/illustrations of the subject;
+ * `diagram` mode targets labelled schematic imagery.
  */
-export function buildSearchQueries(facts: PromptFacts): string[] {
+export function buildSearchQueries(facts: PromptFacts, mode: "photo" | "diagram" = "photo"): string[] {
   const core = coreKeywords(facts);
   const phrase = tokens(facts.topic.split("—")[0] || facts.chapter || facts.subject)
     .slice(0, 4)
     .join(" ");
   const cluster = core.slice(0, 3).join(" ");
+  const real = realSubjects(facts);
+  if (mode === "photo") {
+    const rotated = real.length
+      ? real.slice(facts.variantIndex % real.length).concat(real.slice(0, facts.variantIndex % real.length))
+      : [];
+    const list = [
+      ...rotated,
+      phrase,
+      cluster,
+      phrase && `${phrase} real photo`,
+      cluster && `${cluster} illustration`,
+    ].filter(Boolean) as string[];
+    return [...new Set(list.map((q) => q.replace(/\s+/g, " ").trim()))].filter(Boolean);
+  }
   const hint = SUBJECT_HINTS.find(([re]) => re.test(facts.subject))?.[1] ?? [
     "diagram",
     "educational illustration",
@@ -174,17 +226,20 @@ function relevance(candidateText: string, facts: PromptFacts) {
 }
 
 const MIN_RELEVANCE = 0.5;
+/** Real-photo searches use short, concrete queries, so accept looser matches. */
+const MIN_PHOTO_RELEVANCE = 0.25;
 
 /** Picks the most lesson-relevant candidate, or null when none is close enough. */
 function pickRelevant<T>(
   items: T[],
   facts: PromptFacts,
   describe: (item: T) => string,
+  minScore: number = MIN_RELEVANCE,
 ): T | null {
   const scored = items
     .map((item) => ({ item, score: relevance(describe(item), facts) }))
     .sort((a, b) => b.score - a.score)
-    .filter((s) => s.score >= MIN_RELEVANCE);
+    .filter((s) => s.score >= minScore);
   if (!scored.length) return null;
   const top = scored.filter((s) => s.score >= scored[0].score - 0.001);
   return top[facts.variantIndex % top.length].item;
