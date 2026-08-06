@@ -1,14 +1,16 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { ToolPage } from "@/components/ToolPage";
+import { DeckStudio } from "@/components/deck/DeckStudio";
 
 export const Route = createFileRoute("/presentation")({
   head: () => ({
     meta: [
-      { title: "Presentation Builder — Nexora AI" },
-      { name: "description", content: "Generate ready-to-present slide decks on any topic." },
-      { property: "og:title", content: "AI Presentation Builder — Nexora AI" },
-      { property: "og:description", content: "Auto-build slide decks for any topic in seconds." },
+      { title: "AI Presentation Generator — Nexora AI" },
+      { name: "description", content: "Watch an AI build your presentation live — outline, streamed slide text, and a unique AI image per slide. Export a real editable PPTX." },
+      { property: "og:title", content: "AI Presentation Generator — Nexora AI" },
+      { property: "og:description", content: "Gamma-style AI slide decks for students, exportable as editable PowerPoint." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
-  component: () => <ToolPage mode="presentation" />,
+  component: DeckStudio,
 });

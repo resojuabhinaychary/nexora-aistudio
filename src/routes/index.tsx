@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { motion } from "framer-motion";
-import { Sparkles, MessageCircleQuestion, BookOpen, Presentation, FileDown, Library, ArrowRight, User2, Instagram, GraduationCap } from "lucide-react";
+import { Sparkles, MessageCircleQuestion, BookOpen, Presentation, Library, ArrowRight, User2, Instagram, GraduationCap } from "lucide-react";
 import { AnimatedBackground } from "@/components/AnimatedBackground";
 import { Logo } from "@/components/Logo";
 import { InfoCenterButton } from "@/components/InfoCenter";
@@ -39,20 +39,11 @@ const TOOLS = [
   {
     key: "presentation",
     to: "/presentation" as const,
-    label: "Presentation",
-    desc: "AI-built slide decks for any topic — present in seconds.",
+    label: "AI Presentation",
+    desc: "Watch slides build live — streamed text, AI image per slide, real editable PPTX.",
     icon: Presentation,
     bg: "gradient-lavender",
     emoji: "🎞️",
-  },
-  {
-    key: "pdf",
-    to: "/pdf" as const,
-    label: "PDF Booklet",
-    desc: "Illustrated A4 study booklets with colored content boxes.",
-    icon: FileDown,
-    bg: "gradient-peach",
-    emoji: "📘",
   },
   {
     key: "exam",
