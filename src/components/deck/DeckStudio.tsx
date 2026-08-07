@@ -12,7 +12,7 @@ import { Logo } from "@/components/Logo";
 import { SlideView } from "@/components/deck/SlideView";
 import { DECK_THEMES, DECK_FONTS, fontsForLanguage } from "@/lib/deckThemes";
 import { generateDeckOutline, generateDeckSlide, generateDeckImage } from "@/lib/deck.functions";
-import { exportDeckToPptx, exportDeckToPdf, exportDeckImages } from "@/lib/deckExport";
+import { exportDeckToPptx, exportDeckToPdf, exportDeckImages, exportSpeakerNotes } from "@/lib/deckExport";
 import type { Deck, DeckSlide, DeckOutlineItem } from "@/lib/deck.types";
 
 const GRADES = ["Class 6", "Class 7", "Class 8", "Class 9", "Class 10", "Class 11", "Class 12", "Intermediate", "Degree"];
@@ -496,6 +496,7 @@ export function DeckStudio() {
                     </button>
                     <button onClick={() => exportDeckToPdf(liveDeck)} className="chip"><FileDown className="h-3.5 w-3.5" /> Download PDF</button>
                     <button onClick={() => exportDeckImages(liveDeck)} className="chip"><ImageDown className="h-3.5 w-3.5" /> Download images</button>
+                    <button onClick={() => exportSpeakerNotes(liveDeck)} className="chip"><FileDown className="h-3.5 w-3.5" /> Speaker notes</button>
                   </div>
                 </div>
               )}
