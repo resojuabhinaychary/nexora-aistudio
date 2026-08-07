@@ -98,6 +98,54 @@ export const DECK_THEMES: DeckTheme[] = [
     accent: "#2dd4bf",
     pptx: { bg: "0F172A", title: "ECFEFF", body: "CBD5E1", accent: "2DD4BF", card: "17253C" },
   },
+  {
+    id: "glass",
+    name: "Glass",
+    surface: "linear-gradient(135deg,#e7edff 0%,#f6f0ff 50%,#e6fbff 100%)",
+    title: "#1e1b4b",
+    body: "#312e81",
+    muted: "#6366f1",
+    card: "rgba(255,255,255,0.55)",
+    border: "rgba(255,255,255,0.75)",
+    accent: "#6366f1",
+    pptx: { bg: "EEF2FF", title: "1E1B4B", body: "312E81", accent: "6366F1", card: "E3E8FF" },
+  },
+  {
+    id: "creative",
+    name: "Creative",
+    surface: "linear-gradient(135deg,#fff7ed 0%,#ffe4e6 55%,#fae8ff 100%)",
+    title: "#7c2d12",
+    body: "#9f1239",
+    muted: "#be5b6a",
+    card: "rgba(255,255,255,0.8)",
+    border: "rgba(124,45,18,0.12)",
+    accent: "#f97316",
+    pptx: { bg: "FFF7ED", title: "7C2D12", body: "9F1239", accent: "F97316", card: "FFE9DC" },
+  },
+  {
+    id: "nature",
+    name: "Nature",
+    surface: "linear-gradient(135deg,#f0fdf4 0%,#ecfccb 55%,#e0f2fe 100%)",
+    title: "#14532d",
+    body: "#3f6212",
+    muted: "#65a30d",
+    card: "rgba(255,255,255,0.82)",
+    border: "rgba(20,83,45,0.14)",
+    accent: "#65a30d",
+    pptx: { bg: "F3FDF4", title: "14532D", body: "3F6212", accent: "65A30D", card: "E6F6DF" },
+  },
+  {
+    id: "technology",
+    name: "Technology",
+    surface: "linear-gradient(140deg,#020617 0%,#0b1229 55%,#082f49 130%)",
+    title: "#e0f2fe",
+    body: "#bae6fd",
+    muted: "#7dd3fc",
+    card: "rgba(56,189,248,0.10)",
+    border: "rgba(56,189,248,0.28)",
+    accent: "#38bdf8",
+    pptx: { bg: "020617", title: "E0F2FE", body: "BAE6FD", accent: "38BDF8", card: "0B2438" },
+  },
 ];
 
 export const getTheme = (id: string) => DECK_THEMES.find((t) => t.id === id) ?? DECK_THEMES[0];
@@ -108,3 +156,23 @@ export const DECK_FONTS = [
   { id: "'Trebuchet MS', system-ui, sans-serif", label: "Trebuchet", pptx: "Trebuchet MS" },
   { id: "'Courier New', monospace", label: "Mono", pptx: "Consolas" },
 ];
+/** Script-safe font stacks so Telugu / Hindi never render as boxes or overlap. */
+export function fontsForLanguage(language: string, base: string) {
+  if (/telugu/i.test(language)) return `'Noto Sans Telugu', ${base}`;
+  if (/hindi|marathi|sanskrit/i.test(language)) return `'Noto Sans Devanagari', ${base}`;
+  if (/tamil/i.test(language)) return `'Noto Sans Tamil', ${base}`;
+  if (/kannada/i.test(language)) return `'Noto Sans Kannada', ${base}`;
+  if (/bengali/i.test(language)) return `'Noto Sans Bengali', ${base}`;
+  return base;
+}
+
+/** Fonts that ship with PowerPoint / Google Slides and cover Indic scripts. */
+export function pptxFontForLanguage(language: string, base: string) {
+  if (/telugu/i.test(language)) return "Nirmala UI";
+  if (/hindi|marathi|sanskrit|tamil|kannada|bengali/i.test(language)) return "Nirmala UI";
+  return base;
+}
+
+/** Indic scripts need extra line height so glyphs never clip. */
+export const lineHeightForLanguage = (language: string) =>
+  /telugu|hindi|marathi|tamil|kannada|bengali|sanskrit/i.test(language) ? 1.65 : 1.35;
