@@ -1,5 +1,21 @@
 import { jsPDF } from "jspdf";
-import type { Deck } from "./deck.types";
+import type { Deck, DeckSlide, SlideBlock } from "./deck.types";
+
+/** Flatten rich blocks into export-friendly bullet lines. */
+function linesOf(slide: DeckSlide): string[] {
+  const out: string[] = [...(slide.bullets || [])];
+  for (const b of (slide.blocks || []) as SlideBlock[]) {
+    if (b.kind === "paragraph") out.push(b.text);
+    else if (b.kind === "points") out.push(...b.items);
+    else if (b.kind === "stats") out.push(...b.items.map((i) => `${i.value} — ${i.label}`));
+    else if (b.kind === "timeline") out.push(...b.items.map((i) => `${i.when}: ${i.what}`));
+    else if (b.kind === "table") out.push(b.headers.join(" | "), ...b.rows.map((r) => r.join(" | ")));
+    else if (b.kind === "comparison")
+      out.push(`${b.left.title}: ${b.left.items.join("; ")}`, `${b.right.title}: ${b.right.items.join("; ")}`);
+    else out.push(`${b.title || b.variant.replace(/-/g, " ")}: ${b.text}`);
+  }
+  return out.filter(Boolean);
+}
 import { getTheme, DECK_FONTS } from "./deckThemes";
 
 const safe = (s: string) => s.replace(/[^\w\d\-_ ]+/g, "").trim().slice(0, 60) || "presentation";
@@ -30,8 +46,8 @@ export async function exportDeckToPptx(deck: Deck) {
           x: 0.6, y: 3.3, w: hasImage ? 4.6 : 8.8, h: 0.8,
           fontSize: 20, color: theme.pptx.accent, fontFace: font,
         });
-      if (s.bullets.length)
-        slide.addText(s.bullets.map((t) => ({ text: t, options: { bullet: true } })), {
+      if (linesOf(s).length)
+        slide.addText(linesOf(s).map((t) => ({ text: t, options: { bullet: true } })), {
           x: 0.6, y: 4.0, w: hasImage ? 4.6 : 8.8, h: 1.2,
           fontSize: 14, color: theme.pptx.body, fontFace: font,
         });
@@ -50,7 +66,7 @@ export async function exportDeckToPptx(deck: Deck) {
         rectRadius: 0.12,
       });
       slide.addText(
-        s.bullets.map((t) => ({ text: t, options: { bullet: true, breakLine: true } })),
+        linesOf(s).map((t) => ({ text: t, options: { bullet: true, breakLine: true } })),
         { x: 0.8, y: 1.95, w: textW - 0.45, h: 2.9, fontSize: 16, color: theme.pptx.body, fontFace: font, lineSpacingMultiple: 1.3 },
       );
       if (hasImage) slide.addImage({ data: s.image!, x: 5.65, y: 1.75, w: 3.8, h: 3.3, rounding: true });
@@ -90,7 +106,7 @@ export function exportDeckToPdf(deck: Deck) {
     doc.setFont("helvetica", "normal");
     doc.setFontSize(14);
     doc.setTextColor(hex(theme.pptx.body));
-    s.bullets.forEach((b) => {
+    linesOf(s).forEach((b) => {
       const lines = doc.splitTextToSize(`•  ${b}`, textW);
       doc.text(lines, 56, y);
       y += lines.length * 20 + 8;
@@ -121,4 +137,16 @@ export function exportDeckImages(deck: Deck) {
     a.click();
     a.remove();
   });
+}
+/** Speaker notes as a plain-text handout. */
+export function exportSpeakerNotes(deck: Deck) {
+  const text = deck.slides
+    .map((s, i) => `Slide ${i + 1} — ${s.title}\n${s.speakerNotes || "(no notes)"}\n`)
+    .join("\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
+  a.download = `${safe(deck.title)}-speaker-notes.txt`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 }

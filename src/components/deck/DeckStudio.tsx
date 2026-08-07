@@ -10,9 +10,9 @@ import {
 import { AnimatedBackground } from "@/components/AnimatedBackground";
 import { Logo } from "@/components/Logo";
 import { SlideView } from "@/components/deck/SlideView";
-import { DECK_THEMES, DECK_FONTS } from "@/lib/deckThemes";
+import { DECK_THEMES, DECK_FONTS, fontsForLanguage } from "@/lib/deckThemes";
 import { generateDeckOutline, generateDeckSlide, generateDeckImage } from "@/lib/deck.functions";
-import { exportDeckToPptx, exportDeckToPdf, exportDeckImages } from "@/lib/deckExport";
+import { exportDeckToPptx, exportDeckToPdf, exportDeckImages, exportSpeakerNotes } from "@/lib/deckExport";
 import type { Deck, DeckSlide, DeckOutlineItem } from "@/lib/deck.types";
 
 const GRADES = ["Class 6", "Class 7", "Class 8", "Class 9", "Class 10", "Class 11", "Class 12", "Intermediate", "Degree"];
@@ -70,6 +70,9 @@ export function DeckStudio() {
   const [themeId, setThemeId] = useState("education");
   const [fontFamily, setFontFamily] = useState(DECK_FONTS[0].id);
   const [fontScale, setFontScale] = useState(1);
+  const [style, setStyle] = useState("professional");
+  const [textAmount, setTextAmount] = useState("balanced");
+  const [imageStyle, setImageStyle] = useState("illustration");
 
   const [outline, setOutline] = useState<DeckOutlineItem[] | null>(null);
   const [deck, setDeck] = useState<Deck | null>(null);
@@ -118,6 +121,7 @@ export function DeckStudio() {
         title: plan.title,
         subject: plan.subject,
         grade,
+        language,
         themeId,
         fontScale,
         fontFamily,
@@ -147,6 +151,9 @@ export function DeckStudio() {
             index: i,
             total,
             previousTitles: built.map((b) => b.title),
+            style,
+            textAmount,
+            imageStyle,
           },
         });
         if (abort.current) return;
@@ -156,6 +163,7 @@ export function DeckStudio() {
           title: content.title,
           subtitle: content.subtitle,
           bullets: [],
+          blocks: [],
           speakerNotes: content.speakerNotes,
           imagePrompt: content.imagePrompt,
           layout: i === 0 ? "title" : i === total - 1 ? "closing" : "content",
@@ -163,23 +171,16 @@ export function DeckStudio() {
         built.push(slide);
         setDeck({ ...base, slides: [...built] });
 
-        // Stream the slide text word by word.
-        for (let b = 0; b < content.bullets.length; b += 1) {
+        // Reveal the slide's content blocks one after another, Gamma-style.
+        for (let b = 0; b < content.blocks.length; b += 1) {
           if (abort.current) return;
-          const words = content.bullets[b].split(/\s+/);
-          let acc = "";
-          for (const w of words) {
-            acc = acc ? `${acc} ${w}` : w;
-            built[built.length - 1] = {
-              ...built[built.length - 1],
-              bullets: [...content.bullets.slice(0, b), acc],
-            };
-            setDeck({ ...base, slides: [...built] });
-            await sleep(28);
-          }
+          built[built.length - 1] = {
+            ...built[built.length - 1],
+            blocks: content.blocks.slice(0, b + 1) as DeckSlide["blocks"],
+          };
+          setDeck({ ...base, slides: [...built] });
+          await sleep(260);
         }
-        built[built.length - 1] = { ...built[built.length - 1], bullets: content.bullets };
-        setDeck({ ...base, slides: [...built] });
 
         // Then — and only then — generate this slide's own AI image.
         setImageBusy(i);
@@ -350,6 +351,21 @@ export function DeckStudio() {
                 {DECK_THEMES.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
             </Field>
+            <Field label="Style">
+              <select value={style} onChange={(e) => setStyle(e.target.value)} className="select-base">
+                {["simple", "professional", "modern", "creative"].map((v) => <option key={v} value={v}>{v[0].toUpperCase() + v.slice(1)}</option>)}
+              </select>
+            </Field>
+            <Field label="Text amount">
+              <select value={textAmount} onChange={(e) => setTextAmount(e.target.value)} className="select-base">
+                {["minimal", "balanced", "detailed"].map((v) => <option key={v} value={v}>{v[0].toUpperCase() + v.slice(1)}</option>)}
+              </select>
+            </Field>
+            <Field label="Image style">
+              <select value={imageStyle} onChange={(e) => setImageStyle(e.target.value)} className="select-base">
+                {["photo", "illustration", "3d", "flat", "watercolor"].map((v) => <option key={v} value={v}>{v[0].toUpperCase() + v.slice(1)}</option>)}
+              </select>
+            </Field>
           </div>
         </section>
 
@@ -437,7 +453,7 @@ export function DeckStudio() {
                 index={active}
                 total={slides.length}
                 themeId={themeId}
-                fontFamily={fontFamily}
+                fontFamily={fontsForLanguage(language, fontFamily)}
                 fontScale={fontScale}
                 imageLoading={imageBusy === active}
                 editable={!running}
@@ -480,6 +496,7 @@ export function DeckStudio() {
                     </button>
                     <button onClick={() => exportDeckToPdf(liveDeck)} className="chip"><FileDown className="h-3.5 w-3.5" /> Download PDF</button>
                     <button onClick={() => exportDeckImages(liveDeck)} className="chip"><ImageDown className="h-3.5 w-3.5" /> Download images</button>
+                    <button onClick={() => exportSpeakerNotes(liveDeck)} className="chip"><FileDown className="h-3.5 w-3.5" /> Speaker notes</button>
                   </div>
                 </div>
               )}
