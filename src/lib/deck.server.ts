@@ -1,4 +1,4 @@
-````typescript
+
 // Server-only helpers for the AI presentation generator.
 import { routeText, routeImage } from "./aiRouter.server";
 
