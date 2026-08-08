@@ -1,4 +1,3 @@
-
 // Server-only helpers for the AI presentation generator.
 import { routeText, routeImage } from "./aiRouter.server";
 
@@ -277,4 +276,3 @@ export async function generateAiImage(
 
   return { error: "image-unavailable" };
 }
-````
