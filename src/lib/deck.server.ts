@@ -277,4 +277,3 @@ export async function generateAiImage(
 
   return { error: "image-unavailable" };
 }
-````
