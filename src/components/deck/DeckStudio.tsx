@@ -18,6 +18,8 @@ import type { Deck, DeckSlide, DeckOutlineItem } from "@/lib/deck.types";
 const GRADES = ["Class 6", "Class 7", "Class 8", "Class 9", "Class 10", "Class 11", "Class 12", "Intermediate", "Degree"];
 const LANGUAGES = ["English", "Hindi", "Telugu", "Tamil", "Kannada", "Marathi", "Bengali"];
 const CACHE_KEY = "nexora.deck.imagecache.v1";
+const CONTENT_CONCURRENCY = 3;
+const IMAGE_CONCURRENCY = 2;
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -79,7 +81,7 @@ export function DeckStudio() {
   const [running, setRunning] = useState(false);
   const [phase, setPhase] = useState<Phase>(null);
   const [active, setActive] = useState(0);
-  const [imageBusy, setImageBusy] = useState<number | null>(null);
+  const [busyImages, setBusyImages] = useState<Set<number>>(new Set());
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const typing = useTypewriter();
   const abort = useRef(false);
@@ -115,7 +117,6 @@ export function DeckStudio() {
       setOutline(plan.slides);
       const total = plan.slides.length;
 
-      const built: DeckSlide[] = [];
       const base: Deck = {
         topic: topic.trim(),
         title: plan.title,
@@ -127,95 +128,118 @@ export function DeckStudio() {
         fontFamily,
         slides: [],
       };
-      setDeck(base);
+      // Show the editable deck shell immediately while independent requests run.
+      const workingSlides: DeckSlide[] = plan.slides.map((item, i) => ({
+        id: uid(),
+        title: item.title,
+        subtitle: "",
+        bullets: [],
+        blocks: [],
+        speakerNotes: "",
+        imagePrompt: "",
+        layout: i === 0 ? "title" : i === total - 1 ? "closing" : "content",
+      }));
+      setDeck({ ...base, slides: [...workingSlides] });
 
-      for (let i = 0; i < total; i += 1) {
-        if (abort.current) return;
-        const item = plan.slides[i];
-        setActive(i);
+      let nextContent = 0;
+      let completedContent = 0;
+      const updateProgress = (label: string, detail: string, completed: number) => {
         setPhase({
-          label: `Generating Slide ${i + 1} of ${total}`,
-          detail: item.title,
-          percent: Math.round(((i + 0.15) / total) * 100),
+          label,
+          detail,
+          percent: Math.min(99, 4 + Math.round((completed / (total * 2)) * 94)),
         });
+      };
 
-        const content = await makeSlide({
-          data: {
-            topic: topic.trim(),
-            grade,
-            language,
-            deckTitle: plan.title,
-            subject: plan.subject,
-            slideTitle: item.title,
-            purpose: item.purpose || "",
-            index: i,
-            total,
-            previousTitles: built.map((b) => b.title),
-            style,
-            textAmount,
-            imageStyle,
-          },
-        });
-        if (abort.current) return;
-
-        const slide: DeckSlide = {
-          id: uid(),
-          title: content.title,
-          subtitle: content.subtitle,
-          bullets: [],
-          blocks: [],
-          speakerNotes: content.speakerNotes,
-          imagePrompt: content.imagePrompt,
-          layout: i === 0 ? "title" : i === total - 1 ? "closing" : "content",
-        };
-        built.push(slide);
-        setDeck({ ...base, slides: [...built] });
-
-        // Reveal the slide's content blocks one after another, Gamma-style.
-        for (let b = 0; b < content.blocks.length; b += 1) {
+      const contentWorker = async () => {
+        while (!abort.current) {
+          const i = nextContent;
+          nextContent += 1;
+          if (i >= total) return;
+          const item = plan.slides[i];
+          const content = await makeSlide({
+            data: {
+              topic: topic.trim(),
+              grade,
+              language,
+              deckTitle: plan.title,
+              subject: plan.subject,
+              slideTitle: item.title,
+              purpose: item.purpose || "",
+              index: i,
+              total,
+              previousTitles: plan.slides.slice(0, i).map((slide) => slide.title),
+              style,
+              textAmount,
+              imageStyle,
+            },
+          });
           if (abort.current) return;
-          built[built.length - 1] = {
-            ...built[built.length - 1],
-            blocks: content.blocks.slice(0, b + 1) as DeckSlide["blocks"],
+          workingSlides[i] = {
+            ...workingSlides[i],
+            title: content.title,
+            subtitle: content.subtitle,
+            blocks: content.blocks as DeckSlide["blocks"],
+            speakerNotes: content.speakerNotes,
+            imagePrompt: content.imagePrompt,
           };
-          setDeck({ ...base, slides: [...built] });
-          await sleep(260);
+          setDeck({ ...base, slides: [...workingSlides] });
+          completedContent += 1;
+          updateProgress(`Writing slides · ${completedContent} of ${total}`, item.title, completedContent);
         }
+      };
 
-        // Then — and only then — generate this slide's own AI image.
-        setImageBusy(i);
-        const prompt = content.imagePrompt;
-        const cached = cache[prompt];
-        if (cached) {
-          setPhase({ label: `Image ${i + 1} of ${total}`, detail: "Restored from cache", percent: Math.round(((i + 0.9) / total) * 100) });
-          built[built.length - 1] = { ...built[built.length - 1], image: cached };
-        } else {
-          let done = false;
-          for (let attempt = 0; attempt < 3 && !done; attempt += 1) {
-            if (abort.current) return;
-            setPhase({
-              label: `Generating AI Image ${i + 1} of ${total}`,
-              detail: attempt === 0 ? "Analyzing slide · creating prompt · rendering…" : `Retrying (attempt ${attempt + 1} of 3)…`,
-              percent: Math.round(((i + 0.6) / total) * 100),
-            });
-            const res = await makeImage({ data: { prompt, attempt } });
-            if (res.ok && res.dataUrl) {
-              cache[prompt] = res.dataUrl;
-              saveCache(cache);
-              built[built.length - 1] = { ...built[built.length - 1], image: res.dataUrl };
-              done = true;
+      await Promise.all(
+        Array.from({ length: Math.min(CONTENT_CONCURRENCY, total) }, () => contentWorker()),
+      );
+      if (abort.current) return;
+
+      let nextImage = 0;
+      let completedImages = 0;
+      const imageWorker = async () => {
+        while (!abort.current) {
+          const i = nextImage;
+          nextImage += 1;
+          if (i >= total) return;
+          const prompt = workingSlides[i].imagePrompt;
+          setBusyImages((current) => new Set(current).add(i));
+          try {
+            const cached = cache[prompt];
+            if (cached) {
+              workingSlides[i] = { ...workingSlides[i], image: cached };
+            } else {
+              for (let attempt = 0; attempt < 3; attempt += 1) {
+                if (abort.current) return;
+                updateProgress(
+                  `Generating images · ${completedImages} of ${total}`,
+                  `Rendering image for slide ${i + 1}`,
+                  total + completedImages,
+                );
+                const res = await makeImage({ data: { prompt, attempt } });
+                if (res.ok && res.dataUrl) {
+                  cache[prompt] = res.dataUrl;
+                  saveCache(cache);
+                  workingSlides[i] = { ...workingSlides[i], image: res.dataUrl };
+                  break;
+                }
+              }
             }
+            setDeck({ ...base, slides: [...workingSlides] });
+            completedImages += 1;
+            updateProgress(`Generating images · ${completedImages} of ${total}`, `Slide ${i + 1} image ready`, total + completedImages);
+          } finally {
+            setBusyImages((current) => {
+              const next = new Set(current);
+              next.delete(i);
+              return next;
+            });
           }
         }
-        setDeck({ ...base, slides: [...built] });
-        setImageBusy(null);
-        setPhase({
-          label: `Image ${i + 1} of ${total} ready`,
-          detail: "Continuing to the next slide…",
-          percent: Math.round(((i + 1) / total) * 100),
-        });
-        await sleep(220);
-      }
+      };
+
+      await Promise.all(
+        Array.from({ length: Math.min(IMAGE_CONCURRENCY, total) }, () => imageWorker()),
+      );
 
       setPhase(null);
       toast.success("Presentation ready — edit, theme it, then export.");
@@ -223,7 +247,7 @@ export function DeckStudio() {
       toast.error(e instanceof Error ? e.message : "Generation failed. Please try again.");
       setPhase(null);
     } finally {
-      setImageBusy(null);
+      setBusyImages(new Set());
       setRunning(false);
       typing.reset();
     }
@@ -233,7 +257,7 @@ export function DeckStudio() {
     if (!deck) return;
     const slide = deck.slides[index];
     if (!slide.imagePrompt) return;
-    setImageBusy(index);
+    setBusyImages((current) => new Set(current).add(index));
     try {
       for (let attempt = 0; attempt < 3; attempt += 1) {
         const res = await makeImage({ data: { prompt: slide.imagePrompt, attempt } });
@@ -244,7 +268,11 @@ export function DeckStudio() {
       }
       toast.error("Image generation is busy right now — try again in a moment.");
     } finally {
-      setImageBusy(null);
+      setBusyImages((current) => {
+        const next = new Set(current);
+        next.delete(index);
+        return next;
+      });
     }
   }
 
@@ -455,7 +483,7 @@ export function DeckStudio() {
                 themeId={themeId}
                 fontFamily={fontsForLanguage(language, fontFamily)}
                 fontScale={fontScale}
-                imageLoading={imageBusy === active}
+                imageLoading={busyImages.has(active)}
                 editable={!running}
                 onChange={(next) => patchSlide(active, next)}
               />
@@ -465,8 +493,8 @@ export function DeckStudio() {
                 <button onClick={() => setActive((i) => Math.min(slides.length - 1, i + 1))} className="chip">Next <ChevronRight className="h-3.5 w-3.5" /></button>
                 {!running && (
                   <>
-                    <button onClick={() => regenerateImage(active)} className="chip" disabled={imageBusy !== null}>
-                      {imageBusy === active ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />} Regenerate image
+                    <button onClick={() => regenerateImage(active)} className="chip" disabled={busyImages.size > 0}>
+                      {busyImages.has(active) ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />} Regenerate image
                     </button>
                     <button onClick={() => duplicateSlide(active)} className="chip"><Copy className="h-3.5 w-3.5" /> Duplicate</button>
                     <button onClick={() => deleteSlide(active)} className="chip"><Trash2 className="h-3.5 w-3.5" /> Delete</button>
