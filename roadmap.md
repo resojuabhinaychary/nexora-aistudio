@@ -6,4 +6,6 @@
 - [x] Remove artificial generation delays while preserving live progress.
 - [x] Add bounded in-flight image reuse and development timing marks.
 - [x] Isolate slide content failures so one failed request does not cancel the deck.
-- [ ] Verify the build and inspect the live presentation screen.
+- [x] Verify the production build and inspect the live presentation screen.
+- [x] Verify the presentation route, heading, generate control, selectors, and console error state in a browser.
+- [ ] Measure end-to-end AI timings with a successful live provider request.
