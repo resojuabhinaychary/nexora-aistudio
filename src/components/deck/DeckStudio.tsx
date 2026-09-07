@@ -20,6 +20,9 @@ const LANGUAGES = ["English", "Hindi", "Telugu", "Tamil", "Kannada", "Marathi", 
 const CACHE_KEY = "nexora.deck.imagecache.v1";
 const CONTENT_CONCURRENCY = 3;
 const IMAGE_CONCURRENCY = 2;
+const measure = (label: string, startedAt: number) => {
+  if (import.meta.env.DEV) console.info(`[Nexora performance] ${label}: ${Math.round(performance.now() - startedAt)}ms`);
+};
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -109,10 +112,13 @@ export function DeckStudio() {
     setOutline(null);
     setActive(0);
     const cache = loadCache();
+    const generationStartedAt = performance.now();
 
     try {
+      const outlineStartedAt = performance.now();
       setPhase({ label: "Thinking", detail: "Planning the slide outline…", percent: 3 });
       const plan = await makeOutline({ data: { topic: topic.trim(), grade, language, slideCount } });
+      measure("outline", outlineStartedAt);
       if (abort.current) return;
       setOutline(plan.slides);
       const total = plan.slides.length;
@@ -157,26 +163,42 @@ export function DeckStudio() {
           nextContent += 1;
           if (i >= total) return;
           const item = plan.slides[i];
-          const content = await makeSlide({
-            data: {
-              topic: topic.trim(),
-              grade,
-              language,
-              deckTitle: plan.title,
-              subject: plan.subject,
-              slideTitle: item.title,
-              purpose: item.purpose || "",
-              index: i,
-              total,
-              previousTitles: plan.slides.slice(0, i).map((slide) => slide.title),
-              style,
-              textAmount,
-              imageStyle,
-            },
-          });
+          const slideStartedAt = performance.now();
+          let content: Awaited<ReturnType<typeof makeSlide>>;
+          try {
+            content = await makeSlide({
+              data: {
+                topic: topic.trim(),
+                grade,
+                language,
+                deckTitle: plan.title,
+                subject: plan.subject,
+                slideTitle: item.title,
+                purpose: item.purpose || "",
+                index: i,
+                total,
+                previousTitles: plan.slides.filter((_, index) => index !== i).map((slide) => slide.title),
+                style,
+                textAmount,
+                imageStyle,
+              },
+            });
+          } catch (error) {
+            if (import.meta.env.DEV) console.warn("[Nexora performance] slide content fallback", { index: i, error });
+            content = {
+              title: item.title,
+              subtitle: "",
+              blocks: [{ kind: "paragraph", text: item.purpose || `Key ideas about ${item.title}.` }],
+              speakerNotes: "",
+              imagePrompt: `${item.title}, ${topic.trim()}, educational illustration, no text`,
+            };
+          }
+          measure(`slide content ${i + 1}`, slideStartedAt);
           if (abort.current) return;
+          const workingSlide = workingSlides[i];
+          if (!workingSlide) return;
           workingSlides[i] = {
-            ...workingSlides[i],
+            ...workingSlide,
             title: content.title,
             subtitle: content.subtitle,
             blocks: content.blocks as DeckSlide["blocks"],
@@ -196,33 +218,49 @@ export function DeckStudio() {
 
       let nextImage = 0;
       let completedImages = 0;
+      const imageRequests = new Map<string, Promise<string | null>>();
+      const requestImage = (prompt: string) => {
+        const cached = cache[prompt];
+        if (cached) return Promise.resolve(cached);
+        const existing = imageRequests.get(prompt);
+        if (existing) return existing;
+        const startedAt = performance.now();
+        const request = (async () => {
+          for (let attempt = 0; attempt < 3; attempt += 1) {
+            if (abort.current) return null;
+            const res = await makeImage({ data: { prompt, attempt } });
+            if (res.ok && res.dataUrl) {
+              cache[prompt] = res.dataUrl;
+              saveCache(cache);
+              measure("image", startedAt);
+              return res.dataUrl;
+            }
+          }
+          measure("image failed", startedAt);
+          return null;
+        })();
+        imageRequests.set(prompt, request);
+        return request;
+      };
       const imageWorker = async () => {
         while (!abort.current) {
           const i = nextImage;
           nextImage += 1;
           if (i >= total) return;
-          const prompt = workingSlides[i].imagePrompt;
+          const workingSlide = workingSlides[i];
+          if (!workingSlide) return;
+          const prompt = workingSlide.imagePrompt;
+          if (!prompt) continue;
           setBusyImages((current) => new Set(current).add(i));
           try {
-            const cached = cache[prompt];
-            if (cached) {
-              workingSlides[i] = { ...workingSlides[i], image: cached };
-            } else {
-              for (let attempt = 0; attempt < 3; attempt += 1) {
-                if (abort.current) return;
-                updateProgress(
-                  `Generating images · ${completedImages} of ${total}`,
-                  `Rendering image for slide ${i + 1}`,
-                  total + completedImages,
-                );
-                const res = await makeImage({ data: { prompt, attempt } });
-                if (res.ok && res.dataUrl) {
-                  cache[prompt] = res.dataUrl;
-                  saveCache(cache);
-                  workingSlides[i] = { ...workingSlides[i], image: res.dataUrl };
-                  break;
-                }
-              }
+            updateProgress(
+              `Generating images · ${completedImages} of ${total}`,
+              `Rendering image for slide ${i + 1}`,
+              total + completedImages,
+            );
+            const image = await requestImage(prompt);
+            if (image) {
+              workingSlides[i] = { ...workingSlide, image };
             }
             setDeck({ ...base, slides: [...workingSlides] });
             completedImages += 1;
@@ -242,6 +280,7 @@ export function DeckStudio() {
       );
 
       setPhase(null);
+      measure("total presentation", generationStartedAt);
       toast.success("Presentation ready — edit, theme it, then export.");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Generation failed. Please try again.");
